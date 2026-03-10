@@ -1,0 +1,33 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: stlabs-postgres
+    environment:
+      POSTGRES_DB: strengthlabs
+      POSTGRES_USER: stlabs
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: stlabs-redis
+    ports:
+      - "6379:6379"
+
+  compute-engine:
+    build:
+      context: ../compute-engine
+      dockerfile: ../docker/Dockerfile.compute
+    container_name: stlabs-compute
+    ports:
+      - "8001:8001"
+    environment:
+      - ENV=dev
+
+volumes:
+  postgres_data:
