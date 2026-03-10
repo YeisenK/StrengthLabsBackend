@@ -1,0 +1,62 @@
+0 verbose cli /usr/bin/node /usr/bin/npm
+1 info using npm@10.9.4
+2 info using node@v22.22.0
+3 silly config load:file:/usr/lib/node_modules/npm/npmrc
+4 silly config load:file:/home/v0id/.npmrc
+5 silly config load:file:/usr/etc/npmrc
+6 verbose title npm install pnpm
+7 verbose argv "install" "--global" "pnpm"
+8 verbose logfile logs-max:10 dir:/home/v0id/.npm/_logs/2026-03-04T02_41_20_710Z-
+9 verbose logfile /home/v0id/.npm/_logs/2026-03-04T02_41_20_710Z-debug-0.log
+10 silly packumentCache heap:2103443456 maxSize:525860864 maxEntrySize:262930432
+11 silly logfile done cleaning log files
+12 silly idealTree buildDeps
+13 silly fetch manifest pnpm@*
+14 silly packumentCache full:https://registry.npmjs.org/pnpm cache-miss
+15 http fetch GET 200 https://registry.npmjs.org/pnpm 660ms (cache miss)
+16 silly packumentCache full:https://registry.npmjs.org/pnpm set size:undefined disposed:false
+17 silly placeDep ROOT pnpm@10.30.3 OK for:  want: *
+18 silly reify moves {}
+19 verbose stack Error: EACCES: permission denied, mkdir '/usr/lib/node_modules/pnpm'
+19 verbose stack     at async mkdir (node:internal/fs/promises:855:10)
+19 verbose stack     at async /usr/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:624:20
+19 verbose stack     at async Promise.allSettled (index 0)
+19 verbose stack     at async [reifyPackages] (/usr/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:325:11)
+19 verbose stack     at async Arborist.reify (/usr/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:142:5)
+19 verbose stack     at async Install.exec (/usr/lib/node_modules/npm/lib/commands/install.js:150:5)
+19 verbose stack     at async Npm.exec (/usr/lib/node_modules/npm/lib/npm.js:207:9)
+19 verbose stack     at async module.exports (/usr/lib/node_modules/npm/lib/cli/entry.js:74:5)
+20 error code EACCES
+21 error syscall mkdir
+22 error path /usr/lib/node_modules/pnpm
+23 error errno -13
+24 error Error: EACCES: permission denied, mkdir '/usr/lib/node_modules/pnpm'
+24 error     at async mkdir (node:internal/fs/promises:855:10)
+24 error     at async /usr/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:624:20
+24 error     at async Promise.allSettled (index 0)
+24 error     at async [reifyPackages] (/usr/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:325:11)
+24 error     at async Arborist.reify (/usr/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:142:5)
+24 error     at async Install.exec (/usr/lib/node_modules/npm/lib/commands/install.js:150:5)
+24 error     at async Npm.exec (/usr/lib/node_modules/npm/lib/npm.js:207:9)
+24 error     at async module.exports (/usr/lib/node_modules/npm/lib/cli/entry.js:74:5) {
+24 error   errno: -13,
+24 error   code: 'EACCES',
+24 error   syscall: 'mkdir',
+24 error   path: '/usr/lib/node_modules/pnpm'
+24 error }
+25 error
+25 error The operation was rejected by your operating system.
+25 error It is likely you do not have the permissions to access this file as the current user
+25 error
+25 error If you believe this might be a permissions issue, please double-check the
+25 error permissions of the file and its containing directories, or try running
+25 error the command again as root/Administrator.
+26 silly unfinished npm timer reify 1772592080946
+27 silly unfinished npm timer reify:createSparse 1772592081705
+28 verbose cwd /home/v0id
+29 verbose os Linux 6.8.0-100-generic
+30 verbose node v22.22.0
+31 verbose npm  v10.9.4
+32 verbose exit -13
+33 verbose code -13
+34 error A complete log of this run can be found in: /home/v0id/.npm/_logs/2026-03-04T02_41_20_710Z-debug-0.log
