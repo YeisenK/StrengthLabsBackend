@@ -7,6 +7,6 @@ router = APIRouter(prefix="/compute/risk", tags=["risk"])
 
 
 @router.post("", response_model=RiskResponse)
-def compute_risk(payload: RiskRequest) -> RiskResponse:
+def compute_risk(payload: RiskRequest) -> RiskResponse: 
     result = calculate_risk(payload.acwr, payload.tsb)
     return RiskResponse(**result)
