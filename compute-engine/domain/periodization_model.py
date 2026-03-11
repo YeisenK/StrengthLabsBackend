@@ -25,7 +25,7 @@ class MicrocycleType(str, Enum):
 
 
 class IntensityZone(str, Enum):
-    # Modelo de 5 zonas Seiler (2010), mapeadas a RPE CR-10
+    # Modelo de 5 zonas, mapeadas a RPE CR-10
     Z1 = "z1_recovery"
     Z2 = "z2_aerobic"
     Z3 = "z3_tempo"
@@ -57,7 +57,7 @@ class MicrocyclePlan:
     coach_notes: list[str] = field(default_factory=list)
 
 
-# Ventanas de bloque en días (Issurin 2008)
+# Ventanas de bloque en días
 REALIZATION_WINDOW_DAYS   = 14
 TRANSMUTATION_WINDOW_DAYS = 42
 ACCUMULATION_WINDOW_DAYS  = 84
@@ -108,7 +108,7 @@ def select_microcycle_type(
     if acwr > 1.3 or readiness_score < 50:
         return MicrocycleType.MAINTENANCE
 
-    # Semana shock cada ~4 semanas si el atleta está fresco y riesgo bajo (Issurin 2008)
+    # Semana shock cada ~4 semanas si el atleta está fresco y riesgo baj
     is_shock_week = (weeks_in_phase % 4 == 3) and tsb > 0 and readiness_score >= 70
     if is_shock_week and composite_risk < 0.20:
         return MicrocycleType.SHOCK
@@ -116,7 +116,7 @@ def select_microcycle_type(
     return MicrocycleType.LOADING
 
 
-# Multiplicadores de carga por tipo de microciclo (Zatsiorsky 1995)
+# Multiplicadores de carga por tipo de microciclo
 LOAD_MULTIPLIERS: dict[MicrocycleType, float] = {
     MicrocycleType.SHOCK:       1.30,
     MicrocycleType.LOADING:     1.05,
@@ -126,7 +126,7 @@ LOAD_MULTIPLIERS: dict[MicrocycleType, float] = {
     MicrocycleType.COMPETITION: 0.45,
 }
 
-# Distribución de zonas por fase — modelo polarizado Seiler (2010)
+# Distribución de zonas por fase — modelo polarizado
 ZONE_DISTRIBUTION: dict[TrainingPhase, dict[IntensityZone, float]] = {
     TrainingPhase.ACCUMULATION: {
         IntensityZone.Z1: 0.20, IntensityZone.Z2: 0.60,
