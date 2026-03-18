@@ -1,0 +1,208 @@
+openapi: "3.0.3"
+info:
+  title: StrengthLabs API
+  version: "1.0.0"
+  description: Adaptive Strength Intelligence Platform
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    TokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+
+    SessionInput:
+      type: object
+      required: [date, muscleGroup, sets, repsPerSet, weightKg, rirAverage]
+      properties:
+        date:
+          type: string
+          format: date
+        muscleGroup:
+          type: string
+        sets:
+          type: integer
+          minimum: 1
+          maximum: 20
+        repsPerSet:
+          type: integer
+          minimum: 1
+          maximum: 30
+        weightKg:
+          type: number
+          minimum: 0
+        rirAverage:
+          type: integer
+          minimum: 0
+          maximum: 5
+
+    SessionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        muscleGroup:
+          type: string
+        fatigueScore:
+          type: number
+        riskZone:
+          type: string
+          enum: [GREEN, YELLOW, RED]
+
+    DashboardResponse:
+      type: object
+      properties:
+        atl:
+          type: number
+        ctl:
+          type: number
+        acwr:
+          type: number
+        tsb:
+          type: number
+        riskZone:
+          type: string
+        recentSessions:
+          type: array
+          items:
+            type: object
+        history:
+          type: array
+          items:
+            type: object
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+
+paths:
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "409":
+          description: Email already registered
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "401":
+          description: Invalid credentials
+
+  /api/v1/sessions:
+    post:
+      tags: [Sessions]
+      summary: Register a workout session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionInput"
+      responses:
+        "201":
+          description: Session registered with computed metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+
+  /api/v1/dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Get training dashboard metrics
+      security: []
+      responses:
+        "200":
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardResponse"
+
+  /api/v1/admin/users/{userId}/deactivate:
+    delete:
+      tags: [Admin]
+      summary: Deactivate a user (ADMIN only)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: User deactivated
+        "404":
+          description: User not found

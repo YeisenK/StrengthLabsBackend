@@ -17,6 +17,10 @@ public class WorkoutSession {
     private int rirAverage;
     private FatigueScore fatigueScore;
     private RiskLevel riskLevel;
+    private Double atl;
+    private Double ctl;
+    private Double acwr;
+    private Double tsb;
 
     public WorkoutSession(UUID id, UUID userId, LocalDate date, String muscleGroup,
                           int sets, int repsPerSet, double weightKg, int rirAverage) {
@@ -30,9 +34,14 @@ public class WorkoutSession {
         this.rirAverage = rirAverage;
     }
 
-    public void applyMetrics(FatigueScore fatigueScore, RiskLevel riskLevel) {
+    public void applyMetrics(FatigueScore fatigueScore, RiskLevel riskLevel,
+                             Double atl, Double ctl, Double acwr, Double tsb) {
         this.fatigueScore = fatigueScore;
         this.riskLevel = riskLevel;
+        this.atl = atl;
+        this.ctl = ctl;
+        this.acwr = acwr;
+        this.tsb = tsb;
     }
 
     public UUID getId() { return id; }
@@ -45,4 +54,8 @@ public class WorkoutSession {
     public int getRirAverage() { return rirAverage; }
     public FatigueScore getFatigueScore() { return fatigueScore; }
     public RiskLevel getRiskLevel() { return riskLevel; }
+    public Double getAtl() { return atl; }
+    public Double getCtl() { return ctl; }
+    public Double getAcwr() { return acwr; }
+    public Double getTsb() { return tsb; }
 }
