@@ -19,4 +19,16 @@ def compute_fatigue(payload: FatigueRequest) -> FatigueResponse:
     ]
 
     result = calculate_fatigue_metrics(sessions)
-    return FatigueResponse(**result)
+
+    return FatigueResponse(
+        atl=result["atl"],
+        ctl=result["ctl"],
+        acwr=result["acwr"],
+        tsb=result["tsb"],
+        monotony=result["monotony"],
+        strain=result["strain"],
+        ramp_rate=result["ramp_rate"],
+        readiness_score=result["readiness_score"],
+        risk_flags=result["risk_flags"],
+        atl_series=result["atl_series"],
+    )

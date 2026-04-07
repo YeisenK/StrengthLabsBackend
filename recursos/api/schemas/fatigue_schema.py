@@ -1,5 +1,5 @@
 from datetime import date
-from typing import List
+from typing import Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -20,3 +20,9 @@ class FatigueResponse(BaseModel):
     ctl: float
     acwr: float
     tsb: float
+    monotony: float
+    strain: float
+    ramp_rate: float
+    readiness_score: float
+    risk_flags: List[str]
+    atl_series: Dict[str, float]

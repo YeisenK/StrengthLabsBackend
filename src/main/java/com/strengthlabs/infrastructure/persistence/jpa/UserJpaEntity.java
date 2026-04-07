@@ -12,6 +12,9 @@ public class UserJpaEntity {
     @Column(columnDefinition = "uuid")
     private UUID id;
 
+    @Column(nullable = false)
+    private String name;
+
     @Column(unique = true, nullable = false)
     private String email;
 
@@ -28,6 +31,7 @@ public class UserJpaEntity {
     public static UserJpaEntity fromDomain(User user) {
         UserJpaEntity entity = new UserJpaEntity();
         entity.id = user.getId();
+        entity.name = user.getName();
         entity.email = user.getEmail();
         entity.passwordHash = user.getPasswordHash();
         entity.role = user.getRole();
@@ -36,10 +40,11 @@ public class UserJpaEntity {
     }
 
     public User toDomain() {
-        return new User(id, email, passwordHash, role);
+        return new User(id, name, email, passwordHash, role);
     }
 
     public UUID getId() { return id; }
+    public String getName() { return name; }
     public String getEmail() { return email; }
     public String getPasswordHash() { return passwordHash; }
     public User.Role getRole() { return role; }
