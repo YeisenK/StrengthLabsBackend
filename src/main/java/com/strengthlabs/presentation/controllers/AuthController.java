@@ -88,6 +88,12 @@ public class AuthController {
         ));
     }
 
+    /** JWKS endpoint — exposes the RSA public key so clients can verify tokens locally. */
+    @GetMapping("/.well-known/jwks.json")
+    public ResponseEntity<Map<String, Object>> jwks() {
+        return ResponseEntity.ok(tokenProvider.getJwks());
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────────
 
     private Map<String, String> tokenPair(User user) {

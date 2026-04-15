@@ -8,12 +8,12 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/admin")
-@PreAuthorize("hasRole('ADMIN')")
 public class AdminController {
 
     private final UserRepository userRepository;
@@ -22,7 +22,39 @@ public class AdminController {
         this.userRepository = userRepository;
     }
 
+    // ── TRAINER + ADMIN ────────────────────────────────────────────────────────
+
+    @GetMapping("/users")
+    @PreAuthorize("hasAnyRole('TRAINER', 'ADMIN')")
+    public ResponseEntity<Map<String, Object>> listUsers() {
+        List<Map<String, Object>> users = userRepository.findAll().stream()
+                .map(u -> Map.<String, Object>of(
+                        "id", u.getId().toString(),
+                        "name", u.getName(),
+                        "email", u.getEmail(),
+                        "role", u.getRole().name(),
+                        "active", u.isActive()))
+                .toList();
+        return ResponseEntity.ok(Map.of("items", users));
+    }
+
+    @GetMapping("/users/{userId}")
+    @PreAuthorize("hasAnyRole('TRAINER', 'ADMIN')")
+    public ResponseEntity<Map<String, Object>> getUser(@PathVariable UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        return ResponseEntity.ok(Map.of(
+                "id", user.getId().toString(),
+                "name", user.getName(),
+                "email", user.getEmail(),
+                "role", user.getRole().name(),
+                "active", user.isActive()));
+    }
+
+    // ── ADMIN only ─────────────────────────────────────────────────────────────
+
     @DeleteMapping("/users/{userId}/deactivate")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, String>> deactivateUser(@PathVariable UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));

@@ -6,6 +6,7 @@ import com.strengthlabs.infrastructure.persistence.jpa.UserJpaEntity;
 import com.strengthlabs.infrastructure.persistence.jpa.UserJpaRepository;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -37,5 +38,12 @@ public class UserRepositoryAdapter implements UserRepository {
     @Override
     public boolean existsByEmail(String email) {
         return jpaRepository.existsByEmail(email);
+    }
+
+    @Override
+    public List<User> findAll() {
+        return jpaRepository.findAll().stream()
+                .map(UserJpaEntity::toDomain)
+                .toList();
     }
 }

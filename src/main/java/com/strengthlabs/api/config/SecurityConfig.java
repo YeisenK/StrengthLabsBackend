@@ -35,7 +35,8 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 // Public endpoints
-                .requestMatchers("/auth/**").permitAll()
+                .requestMatchers("/auth/register", "/auth/login", "/auth/refresh",
+                                 "/auth/.well-known/jwks.json").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 // Legacy admin (kept from old code)
                 .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
