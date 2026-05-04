@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -19,15 +17,9 @@ services:
     ports:
       - "6379:6379"
 
-  compute-engine:
-    build:
-      context: ../compute-engine
-      dockerfile: ../docker/Dockerfile.compute
-    container_name: stlabs-compute
-    ports:
-      - "8001:8001"
-    environment:
-      - ENV=dev
+  # compute-engine se levanta manualmente con uvicorn en dev para hot reload:
+  #   cd recursos && uvicorn api.main:app --port 8001 --reload
+  # Para producción, ver Dockerfile.compute (build context: ../recursos).
 
 volumes:
   postgres_data:

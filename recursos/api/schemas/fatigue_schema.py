@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Dict, List
+from typing import List
 
 from pydantic import BaseModel, Field
 
@@ -25,4 +25,3 @@ class FatigueResponse(BaseModel):
     ramp_rate: float
     readiness_score: float
     risk_flags: List[str]
-    atl_series: Dict[str, float]

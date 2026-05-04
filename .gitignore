@@ -28,3 +28,9 @@ build/
 .vscode/
 .env
 .claude
+
+# Python (compute-engine)
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
