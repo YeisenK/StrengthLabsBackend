@@ -17,9 +17,11 @@ import java.util.List;
 public class RbacFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider tokenProvider;
+    private final RevokedTokenStore revokedTokenStore;
 
-    public RbacFilter(JwtTokenProvider tokenProvider) {
+    public RbacFilter(JwtTokenProvider tokenProvider, RevokedTokenStore revokedTokenStore) {
         this.tokenProvider = tokenProvider;
+        this.revokedTokenStore = revokedTokenStore;
     }
 
     @Override
@@ -31,15 +33,18 @@ public class RbacFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith("Bearer ")) {
             String token = header.substring(7);
             if (tokenProvider.isValid(token)) {
-                String role = tokenProvider.extractRole(token);
-                String userId = tokenProvider.extractUserId(token).toString();
+                String jti = tokenProvider.extractJti(token);
+                if (!revokedTokenStore.isRevoked(jti)) {
+                    String role = tokenProvider.extractRole(token);
+                    String userId = tokenProvider.extractUserId(token).toString();
 
-                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                        userId,
-                        null,
-                        List.of(new SimpleGrantedAuthority("ROLE_" + role))
-                );
-                SecurityContextHolder.getContext().setAuthentication(auth);
+                    UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                            userId,
+                            null,
+                            List.of(new SimpleGrantedAuthority("ROLE_" + role))
+                    );
+                    SecurityContextHolder.getContext().setAuthentication(auth);
+                }
             }
         }
 

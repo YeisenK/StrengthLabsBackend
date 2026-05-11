@@ -1,0 +1,32 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+
+compute-engine:
+  url: http://localhost:9999
+
+google:
+  client-id: test-client-id
+
+jwt:
+  expiration-ms: 3600000
+
+security:
+  cors:
+    allowed-origins: http://localhost:*
+  rate-limit:
+    max-attempts: 1000
+    window-minutes: 1
+
+logging:
+  level:
+    org.testcontainers: WARN
+    com.zaxxer.hikari: WARN
+    org.hibernate.SQL: WARN

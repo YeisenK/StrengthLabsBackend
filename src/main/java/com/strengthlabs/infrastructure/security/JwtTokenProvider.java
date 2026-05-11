@@ -45,6 +45,7 @@ public class JwtTokenProvider {
 
     public String generateAccessToken(UUID userId, String role) {
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(userId.toString())
                 .claim("role", role)
                 .claim("type", "access")
@@ -56,6 +57,7 @@ public class JwtTokenProvider {
 
     public String generateRefreshToken(UUID userId) {
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(userId.toString())
                 .claim("type", "refresh")
                 .issuedAt(new Date())
@@ -101,6 +103,15 @@ public class JwtTokenProvider {
 
     public String extractRole(String token) {
         return parseToken(token).get("role", String.class);
+    }
+
+    public String extractJti(String token) {
+        return parseToken(token).getId();
+    }
+
+    public long extractExpiresAtMillis(String token) {
+        Date exp = parseToken(token).getExpiration();
+        return exp == null ? 0L : exp.getTime();
     }
 
     /** JWKS representation of the public key for external verification. */

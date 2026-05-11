@@ -14,6 +14,9 @@ public class ExerciseJpaEntity {
     @Column(nullable = false)
     private String name;
 
+    @Column(name = "name_es")
+    private String nameEs;
+
     @Column(name = "muscle_group", nullable = false)
     private String muscleGroup;
 
@@ -26,8 +29,14 @@ public class ExerciseJpaEntity {
     protected ExerciseJpaEntity() {}
 
     public ExerciseJpaEntity(UUID id, String name, String muscleGroup, boolean isCustom, UUID createdBy) {
+        this(id, name, muscleGroup, isCustom, createdBy, null);
+    }
+
+    public ExerciseJpaEntity(UUID id, String name, String muscleGroup,
+                              boolean isCustom, UUID createdBy, String nameEs) {
         this.id = id;
         this.name = name;
+        this.nameEs = nameEs;
         this.muscleGroup = muscleGroup;
         this.isCustom = isCustom;
         this.createdBy = createdBy;
@@ -35,6 +44,7 @@ public class ExerciseJpaEntity {
 
     public UUID getId() { return id; }
     public String getName() { return name; }
+    public String getNameEs() { return nameEs; }
     public String getMuscleGroup() { return muscleGroup; }
     public boolean isCustom() { return isCustom; }
     public UUID getCreatedBy() { return createdBy; }
