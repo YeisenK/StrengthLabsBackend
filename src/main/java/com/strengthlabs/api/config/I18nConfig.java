@@ -1,8 +1,11 @@
 package com.strengthlabs.api.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.support.ReloadableResourceBundleMessageSource;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 import org.springframework.web.servlet.LocaleResolver;
@@ -13,6 +16,12 @@ import java.util.Locale;
 
 @Configuration
 public class I18nConfig {
+
+    @Bean
+    @Primary
+    public ObjectMapper objectMapper() {
+        return new ObjectMapper().registerModule(new JavaTimeModule());
+    }
 
     @Bean
     public LocaleResolver localeResolver() {
