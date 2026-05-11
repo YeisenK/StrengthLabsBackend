@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class TrainingSessionInput(BaseModel):
-    user_id: int = Field(..., gt=0)
+    user_id: str
     date: date
     duration_minutes: int = Field(..., ge=0)
     rpe: float = Field(..., ge=0, le=10)
