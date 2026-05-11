@@ -5,9 +5,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.TestPropertySource;
 
 import java.util.Map;
@@ -21,11 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 })
 class RateLimitIT extends AbstractIntegrationTest {
 
-    @Autowired
-    private TestRestTemplate restTemplate;
-
-    @Autowired
-    private LoginRateLimitFilter rateLimiter;
+    @Autowired private LoginRateLimitFilter rateLimiter;
 
     @BeforeEach
     void resetLimiter() {
@@ -33,22 +26,18 @@ class RateLimitIT extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("4th login attempt within window returns 429 with Retry-After")
-    void exceedsLimit() {
+    @DisplayName("4th login attempt within window returns 429 with Retry-After header")
+    void exceedsLimit() throws Exception {
         for (int i = 0; i < 3; i++) {
-            ResponseEntity<Map> response = restTemplate.postForEntity(
-                    "/auth/login",
-                    Map.of("email", "ghost@test.com", "password", "WhatEver1"),
-                    Map.class);
-            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+            HttpResponse r = doPost("/auth/login",
+                    Map.of("email", "ghost@test.com", "password", "WhatEver1"));
+            assertThat(r.status()).isEqualTo(401);
         }
 
-        ResponseEntity<Map> blocked = restTemplate.postForEntity(
-                "/auth/login",
-                Map.of("email", "ghost@test.com", "password", "WhatEver1"),
-                Map.class);
+        HttpResponse blocked = doPost("/auth/login",
+                Map.of("email", "ghost@test.com", "password", "WhatEver1"));
 
-        assertThat(blocked.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
-        assertThat(blocked.getHeaders().get("Retry-After")).isNotNull();
+        assertThat(blocked.status()).isEqualTo(429);
+        assertThat(blocked.headers().get("Retry-After")).isNotNull();
     }
 }

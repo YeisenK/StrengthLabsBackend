@@ -7,12 +7,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 
 import java.util.Map;
 
@@ -21,17 +15,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("AuthController integration")
 class AuthControllerIT extends AbstractIntegrationTest {
 
-    @Autowired
-    private TestRestTemplate restTemplate;
-
-    @Autowired
-    private UserJpaRepository userRepo;
-
-    @Autowired
-    private LoginRateLimitFilter rateLimiter;
-
-    @Autowired
-    private RevokedTokenStore revokedTokenStore;
+    @Autowired private UserJpaRepository userRepo;
+    @Autowired private LoginRateLimitFilter rateLimiter;
+    @Autowired private RevokedTokenStore revokedTokenStore;
 
     @BeforeEach
     void cleanDb() {
@@ -42,248 +28,195 @@ class AuthControllerIT extends AbstractIntegrationTest {
 
     @Test
     @DisplayName("POST /auth/register returns 201 + token pair")
-    void registerSucceeds() {
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                "/auth/register",
-                Map.of("name", "Alice", "email", "alice@test.com", "password", "Password1"),
-                Map.class);
+    void registerSucceeds() throws Exception {
+        HttpResponse r = doPost("/auth/register",
+                Map.of("name", "Alice", "email", "alice@test.com", "password", "Password1"));
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(response.getBody()).containsKeys("access_token", "refresh_token");
+        assertThat(r.status()).isEqualTo(201);
+        assertThat(r.body()).containsKeys("access_token", "refresh_token");
         assertThat(userRepo.findByEmail("alice@test.com")).isPresent();
     }
 
     @Test
     @DisplayName("POST /auth/register with duplicate email returns 409")
-    void registerDuplicateEmail() {
-        registerUser("dup@test.com", "Password1");
+    void registerDuplicateEmail() throws Exception {
+        doPost("/auth/register",
+                Map.of("name", "A", "email", "dup@test.com", "password", "Password1"));
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                "/auth/register",
-                Map.of("name", "Other", "email", "dup@test.com", "password", "Password1"),
-                Map.class);
+        HttpResponse r = doPost("/auth/register",
+                Map.of("name", "B", "email", "dup@test.com", "password", "Password1"));
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(r.status()).isEqualTo(409);
     }
 
     @Test
     @DisplayName("POST /auth/register with invalid email returns 400")
-    void registerInvalidEmail() {
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                "/auth/register",
-                Map.of("name", "Bob", "email", "not-an-email", "password", "Password1"),
-                Map.class);
+    void registerInvalidEmail() throws Exception {
+        HttpResponse r = doPost("/auth/register",
+                Map.of("name", "Bob", "email", "not-an-email", "password", "Password1"));
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(r.status()).isEqualTo(400);
     }
 
     @Test
     @DisplayName("POST /auth/login with valid credentials returns token pair")
-    void loginSucceeds() {
-        registerUser("login@test.com", "Password1");
+    void loginSucceeds() throws Exception {
+        doPost("/auth/register",
+                Map.of("name", "U", "email", "login@test.com", "password", "Password1"));
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                "/auth/login",
-                Map.of("email", "login@test.com", "password", "Password1"),
-                Map.class);
+        HttpResponse r = doPost("/auth/login",
+                Map.of("email", "login@test.com", "password", "Password1"));
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).containsKey("access_token");
+        assertThat(r.status()).isEqualTo(200);
+        assertThat(r.body()).containsKey("access_token");
     }
 
     @Test
     @DisplayName("POST /auth/login with wrong password returns 401")
-    void loginWrongPassword() {
-        registerUser("login2@test.com", "Password1");
+    void loginWrongPassword() throws Exception {
+        doPost("/auth/register",
+                Map.of("name", "U", "email", "login2@test.com", "password", "Password1"));
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                "/auth/login",
-                Map.of("email", "login2@test.com", "password", "WrongOne"),
-                Map.class);
+        HttpResponse r = doPost("/auth/login",
+                Map.of("email", "login2@test.com", "password", "WrongOne"));
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(r.status()).isEqualTo(401);
     }
 
     @Test
     @DisplayName("POST /auth/login with unknown email returns 401")
-    void loginUnknownEmail() {
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                "/auth/login",
-                Map.of("email", "noone@test.com", "password", "Password1"),
-                Map.class);
+    void loginUnknownEmail() throws Exception {
+        HttpResponse r = doPost("/auth/login",
+                Map.of("email", "noone@test.com", "password", "Password1"));
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(r.status()).isEqualTo(401);
     }
 
     @Test
     @DisplayName("POST /auth/refresh with valid refresh token returns new pair")
-    void refreshSucceeds() {
-        Map<String, String> tokens = registerUser("refresh@test.com", "Password1");
+    void refreshSucceeds() throws Exception {
+        HttpResponse reg = doPost("/auth/register",
+                Map.of("name", "U", "email", "refresh@test.com", "password", "Password1"));
+        String refreshToken = (String) reg.body().get("refresh_token");
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                "/auth/refresh",
-                Map.of("refresh_token", tokens.get("refresh_token")),
-                Map.class);
+        HttpResponse r = doPost("/auth/refresh",
+                Map.of("refresh_token", refreshToken));
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).containsKeys("access_token", "refresh_token");
+        assertThat(r.status()).isEqualTo(200);
+        assertThat(r.body()).containsKeys("access_token", "refresh_token");
     }
 
     @Test
-    @DisplayName("POST /auth/refresh rejects access token (only refresh tokens accepted)")
-    void refreshRejectsAccessToken() {
-        Map<String, String> tokens = registerUser("refresh2@test.com", "Password1");
+    @DisplayName("POST /auth/refresh rejects access token")
+    void refreshRejectsAccessToken() throws Exception {
+        HttpResponse reg = doPost("/auth/register",
+                Map.of("name", "U", "email", "refresh2@test.com", "password", "Password1"));
+        String accessToken = (String) reg.body().get("access_token");
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                "/auth/refresh",
-                Map.of("refresh_token", tokens.get("access_token")),
-                Map.class);
+        HttpResponse r = doPost("/auth/refresh",
+                Map.of("refresh_token", accessToken));
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(r.status()).isEqualTo(401);
     }
 
     @Test
     @DisplayName("GET /auth/me with valid bearer token returns user info")
-    void meSucceeds() {
-        Map<String, String> tokens = registerUser("me@test.com", "Password1");
+    void meSucceeds() throws Exception {
+        HttpResponse reg = doPost("/auth/register",
+                Map.of("name", "Test User", "email", "me@test.com", "password", "Password1"));
+        String token = (String) reg.body().get("access_token");
 
-        ResponseEntity<Map> response = authedGet("/auth/me", tokens.get("access_token"));
+        HttpResponse r = doGet("/auth/me", token);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody().get("email")).isEqualTo("me@test.com");
-        assertThat(response.getBody().get("name")).isEqualTo("Test User");
+        assertThat(r.status()).isEqualTo(200);
+        assertThat(r.body().get("email")).isEqualTo("me@test.com");
+        assertThat(r.body().get("name")).isEqualTo("Test User");
     }
 
     @Test
     @DisplayName("GET /auth/me without token returns 401")
-    void meRequiresAuth() {
-        ResponseEntity<Map> response = restTemplate.getForEntity("/auth/me", Map.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    void meRequiresAuth() throws Exception {
+        assertThat(doGet("/auth/me").status()).isEqualTo(401);
     }
 
     @Test
     @DisplayName("GET /auth/me with malformed token returns 401")
-    void meRejectsMalformedToken() {
-        ResponseEntity<Map> response = authedGet("/auth/me", "not.a.real.token");
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    void meRejectsMalformedToken() throws Exception {
+        assertThat(doGet("/auth/me", "not.a.real.token").status()).isEqualTo(401);
     }
-
-    // ── Password policy ───────────────────────────────────────────────────────
 
     @Test
     @DisplayName("register rejects password shorter than 8 chars")
-    void rejectsShortPassword() {
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                "/auth/register",
-                Map.of("name", "X", "email", "short@test.com", "password", "Pass1"),
-                Map.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    void rejectsShortPassword() throws Exception {
+        HttpResponse r = doPost("/auth/register",
+                Map.of("name", "X", "email", "short@test.com", "password", "Pass1"));
+        assertThat(r.status()).isEqualTo(400);
     }
 
     @Test
     @DisplayName("register rejects password without digits")
-    void rejectsPasswordWithoutDigit() {
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                "/auth/register",
-                Map.of("name", "X", "email", "noletters@test.com", "password", "PasswordOnly"),
-                Map.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    void rejectsPasswordWithoutDigit() throws Exception {
+        HttpResponse r = doPost("/auth/register",
+                Map.of("name", "X", "email", "nodig@test.com", "password", "PasswordOnly"));
+        assertThat(r.status()).isEqualTo(400);
     }
 
     @Test
     @DisplayName("register rejects password without letters")
-    void rejectsPasswordWithoutLetters() {
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                "/auth/register",
-                Map.of("name", "X", "email", "nolet@test.com", "password", "12345678"),
-                Map.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    void rejectsPasswordWithoutLetters() throws Exception {
+        HttpResponse r = doPost("/auth/register",
+                Map.of("name", "X", "email", "nolet@test.com", "password", "12345678"));
+        assertThat(r.status()).isEqualTo(400);
     }
-
-    // ── Logout / token revocation ─────────────────────────────────────────────
 
     @Test
     @DisplayName("after logout, access token can no longer call /auth/me")
-    void logoutInvalidatesAccessToken() {
-        Map<String, String> tokens = registerUser("logout@test.com", "Password1");
-        String access = tokens.get("access_token");
+    void logoutInvalidatesAccessToken() throws Exception {
+        HttpResponse reg = doPost("/auth/register",
+                Map.of("name", "U", "email", "logout@test.com", "password", "Password1"));
+        String access = (String) reg.body().get("access_token");
+        String refresh = (String) reg.body().get("refresh_token");
 
-        ResponseEntity<Map> beforeLogout = authedGet("/auth/me", access);
-        assertThat(beforeLogout.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(doGet("/auth/me", access).status()).isEqualTo(200);
 
-        ResponseEntity<Void> logoutResp = restTemplate.exchange(
-                "/auth/logout", HttpMethod.POST,
-                new HttpEntity<>(Map.of("refresh_token", tokens.get("refresh_token")),
-                        bearerHeaders(access)),
-                Void.class);
-        assertThat(logoutResp.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        HttpResponse logout = doPost("/auth/logout",
+                Map.of("refresh_token", refresh), access);
+        assertThat(logout.status()).isEqualTo(204);
 
-        ResponseEntity<Map> afterLogout = authedGet("/auth/me", access);
-        assertThat(afterLogout.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(doGet("/auth/me", access).status()).isEqualTo(401);
     }
 
     @Test
     @DisplayName("after logout, refresh token cannot mint a new access token")
-    void logoutInvalidatesRefreshToken() {
-        Map<String, String> tokens = registerUser("logoutR@test.com", "Password1");
+    void logoutInvalidatesRefreshToken() throws Exception {
+        HttpResponse reg = doPost("/auth/register",
+                Map.of("name", "U", "email", "logoutR@test.com", "password", "Password1"));
+        String access = (String) reg.body().get("access_token");
+        String refresh = (String) reg.body().get("refresh_token");
 
-        restTemplate.exchange(
-                "/auth/logout", HttpMethod.POST,
-                new HttpEntity<>(Map.of("refresh_token", tokens.get("refresh_token")),
-                        bearerHeaders(tokens.get("access_token"))),
-                Void.class);
+        doPost("/auth/logout", Map.of("refresh_token", refresh), access);
 
-        ResponseEntity<Map> refreshResp = restTemplate.postForEntity(
-                "/auth/refresh",
-                Map.of("refresh_token", tokens.get("refresh_token")),
-                Map.class);
-        assertThat(refreshResp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        HttpResponse r = doPost("/auth/refresh", Map.of("refresh_token", refresh));
+        assertThat(r.status()).isEqualTo(401);
     }
 
     @Test
-    @DisplayName("refresh token rotation: original refresh token cannot be reused")
-    void refreshTokenRotation() {
-        Map<String, String> tokens = registerUser("rotate@test.com", "Password1");
-        String original = tokens.get("refresh_token");
+    @DisplayName("refresh token rotation: original token cannot be reused")
+    void refreshTokenRotation() throws Exception {
+        HttpResponse reg = doPost("/auth/register",
+                Map.of("name", "U", "email", "rotate@test.com", "password", "Password1"));
+        String original = (String) reg.body().get("refresh_token");
 
-        ResponseEntity<Map> firstRefresh = restTemplate.postForEntity(
-                "/auth/refresh", Map.of("refresh_token", original), Map.class);
-        assertThat(firstRefresh.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(doPost("/auth/refresh", Map.of("refresh_token", original)).status())
+                .isEqualTo(200);
 
-        ResponseEntity<Map> reuseAttempt = restTemplate.postForEntity(
-                "/auth/refresh", Map.of("refresh_token", original), Map.class);
-        assertThat(reuseAttempt.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(doPost("/auth/refresh", Map.of("refresh_token", original)).status())
+                .isEqualTo(401);
     }
 
     @Test
     @DisplayName("logout always returns 204 even with no tokens")
-    void logoutNoOpAlwaysReturns204() {
-        ResponseEntity<Void> response = restTemplate.exchange(
-                "/auth/logout", HttpMethod.POST, HttpEntity.EMPTY, Void.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-    }
-
-    // ── Helpers ────────────────────────────────────────────────────────────────
-
-    private HttpHeaders bearerHeaders(String token) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(token);
-        return headers;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, String> registerUser(String email, String password) {
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                "/auth/register",
-                Map.of("name", "Test User", "email", email, "password", password),
-                Map.class);
-        return (Map<String, String>) response.getBody();
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private ResponseEntity<Map> authedGet(String path, String token) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(token);
-        return restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), Map.class);
+    void logoutNoOpAlwaysReturns204() throws Exception {
+        assertThat(doPost("/auth/logout", Map.of()).status()).isEqualTo(204);
     }
 }
