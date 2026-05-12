@@ -1,11 +1,11 @@
 from datetime import date
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
 
 class TrainingSessionInput(BaseModel):
-    user_id: int = Field(..., gt=0)
+    user_id: str
     date: date
     duration_minutes: int = Field(..., ge=0)
     rpe: float = Field(..., ge=0, le=10)
@@ -24,5 +24,5 @@ class FatigueResponse(BaseModel):
     strain: float
     ramp_rate: float
     readiness_score: float
-    risk_flags: List[str]
+    risk_flags: List[Dict[str, Any]]
     atl_series: Dict[str, float]

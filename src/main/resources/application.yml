@@ -31,3 +31,10 @@ jwt:
 
 google:
   client-id: ${GOOGLE_CLIENT_ID:REPLACE_WITH_REAL_GOOGLE_CLIENT_ID}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method

@@ -155,39 +155,39 @@ def _build_recommendations(
     ramp_rate: float,
     monotony: float,
     level: RiskLevel,
-) -> list[str]:
+) -> list[dict]:
     recs = []
 
     if acwr > ACWR_CRITICAL:
-        recs.append("Reduce training load immediately — ACWR is severely elevated. Take 2–3 easy days before any quality work.")
+        recs.append({"code": "ACWR_CRITICAL_REDUCE"})
     elif acwr > ACWR_HIGH:
-        recs.append("Scale back intensity and/or volume this week. Target ACWR below 1.5 before resuming hard sessions.")
+        recs.append({"code": "ACWR_HIGH_SCALE_BACK"})
     elif acwr > ACWR_CAUTION:
-        recs.append("Monitor closely. Avoid adding new load this week; maintain current level.")
+        recs.append({"code": "ACWR_CAUTION_MONITOR"})
     elif acwr < ACWR_LOW and acwr > 0:
-        recs.append("Load is below the optimal range. A gradual increase (≤5 ATU/week) would support fitness development.")
+        recs.append({"code": "ACWR_LOW_INCREASE"})
 
     if ramp_rate > RAMP_HIGH:
-        recs.append("Weekly load increase is too rapid. Connective tissue adapts slower than muscle — cap increases at 8 ATU/week.")
+        recs.append({"code": "RAMP_HIGH"})
     elif ramp_rate > RAMP_CAUTION:
-        recs.append("Ramp rate is elevated. Consider an easy week to allow structural adaptation to catch up.")
+        recs.append({"code": "RAMP_CAUTION"})
 
     if tsb < TSB_OVERTRAINED:
-        recs.append("Accumulated fatigue is at a clinical concern level (TSB < −35). A full recovery week (or more) is warranted.")
+        recs.append({"code": "TSB_OVERTRAINED"})
     elif tsb < TSB_FATIGUED:
-        recs.append("Significant fatigue accumulated. Prioritise sleep, nutrition, and reduce intensity before the next hard block.")
+        recs.append({"code": "TSB_FATIGUED"})
     elif tsb < TSB_TIRED:
-        recs.append("Mild fatigue present. Normal within a training block; monitor for progression.")
+        recs.append({"code": "TSB_TIRED"})
     elif tsb > 20:
-        recs.append("Athlete is very fresh. Good window for a peak performance effort or race.")
+        recs.append({"code": "TSB_FRESH"})
 
     if monotony > MONO_CRITICAL:
-        recs.append("Training is highly repetitive. Introduce variation in session type, intensity, or duration to reduce illness risk.")
+        recs.append({"code": "MONOTONY_CRITICAL"})
     elif monotony > MONO_HIGH:
-        recs.append("Moderate monotony. Add at least one session this week that differs significantly in format or intensity.")
+        recs.append({"code": "MONOTONY_HIGH"})
 
     if not recs:
-        recs.append("Training load is well-managed. Continue current plan.")
+        recs.append({"code": "ALL_GOOD"})
 
     return recs
 

@@ -4,8 +4,8 @@ import com.strengthlabs.domain.entities.User;
 import com.strengthlabs.domain.repositories.UserRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import com.strengthlabs.presentation.middleware.LocalizedStatusException;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 
 import java.util.List;
@@ -42,7 +42,7 @@ public class AdminController {
     @PreAuthorize("hasAnyRole('TRAINER', 'ADMIN')")
     public ResponseEntity<Map<String, Object>> getUser(@PathVariable UUID userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new LocalizedStatusException(HttpStatus.NOT_FOUND, "error.user.not.found"));
         return ResponseEntity.ok(Map.of(
                 "id", user.getId().toString(),
                 "name", user.getName(),
@@ -57,7 +57,7 @@ public class AdminController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, String>> deactivateUser(@PathVariable UUID userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+                .orElseThrow(() -> new LocalizedStatusException(HttpStatus.NOT_FOUND, "error.user.not.found"));
         user.deactivate();
         userRepository.save(user);
         return ResponseEntity.ok(Map.of("message", "User deactivated"));

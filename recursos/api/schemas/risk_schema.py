@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -17,4 +17,4 @@ class RiskResponse(BaseModel):
     risk_level: str
     dominant_factor: str
     component_scores: Dict[str, float]
-    recommendations: List[str]
+    recommendations: List[Dict[str, Any]]

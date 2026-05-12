@@ -123,25 +123,25 @@ def calculate_fatigue_metrics(
     ctl_7_days_ago = ctl_series.get(today - timedelta(days=7), 0.0)
     ramp_rate = ctl - ctl_7_days_ago
 
-    risk_flags: List[str] = []
+    risk_flags: List[dict] = []
 
     if acwr > ACWR_HIGH_RISK:
-        risk_flags.append(f"HIGH INJURY RISK: ACWR {acwr:.2f} > {ACWR_HIGH_RISK}")
+        risk_flags.append({"code": "HIGH_ACWR"})
     elif acwr > ACWR_SWEET_SPOT[1]:
-        risk_flags.append(f"CAUTION: ACWR {acwr:.2f} above sweet spot (0.8–1.3)")
+        risk_flags.append({"code": "CAUTION_ACWR"})
     elif 0 < acwr < ACWR_SWEET_SPOT[0]:
-        risk_flags.append(f"UNDERTRAINING: ACWR {acwr:.2f} below sweet spot (0.8–1.3)")
+        risk_flags.append({"code": "UNDERTRAINING"})
 
     if monotony > MONOTONY_HIGH_RISK:
-        risk_flags.append(f"HIGH MONOTONY: {monotony:.2f} > {MONOTONY_HIGH_RISK} (vary training)")
+        risk_flags.append({"code": "HIGH_MONOTONY"})
 
     if ramp_rate > RAMP_RATE_HIGH:
-        risk_flags.append(f"HIGH RAMP RATE: +{ramp_rate:.1f} CTL units/week (limit: {RAMP_RATE_HIGH})")
+        risk_flags.append({"code": "HIGH_RAMP_RATE"})
     elif ramp_rate > RAMP_RATE_CAUTION:
-        risk_flags.append(f"ELEVATED RAMP RATE: +{ramp_rate:.1f} CTL units/week")
+        risk_flags.append({"code": "ELEVATED_RAMP_RATE"})
 
     if tsb < -30:
-        risk_flags.append(f"DEEP FATIGUE: TSB {tsb:.1f} (significant accumulated fatigue)")
+        risk_flags.append({"code": "DEEP_FATIGUE"})
 
     readiness_score = _compute_readiness(acwr, tsb, monotony, ramp_rate)
 
@@ -226,7 +226,7 @@ def weekly_summary(sessions: List[dict], today: Optional[date] = None) -> str:
     if m["risk_flags"]:
         lines.append("\n  ⚠  Risk Flags:")
         for flag in m["risk_flags"]:
-            lines.append(f"     • {flag}")
+            lines.append(f"     • [{flag['code']}]")
     else:
         lines.append("\n  ✓  No risk flags.")
 
