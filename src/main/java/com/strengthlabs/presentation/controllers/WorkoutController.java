@@ -7,19 +7,29 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import com.strengthlabs.presentation.middleware.LocalizedStatusException;
 import com.strengthlabs.presentation.util.I18nHelper;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
 
 import java.time.Instant;
-import java.util.*;
 
 @RestController
 @RequestMapping("/workouts")
 public class WorkoutController {
+
+    /** Cap to avoid pathological clients asking for too much in one page. */
+    private static final int MAX_PAGE_SIZE = 100;
+    private static final int DEFAULT_PAGE_SIZE = 20;
 
     private final WorkoutJpaRepository workoutRepo;
     private final ExerciseJpaRepository exerciseRepo;
@@ -42,6 +52,7 @@ public class WorkoutController {
                                 @NotBlank String date,
                                 int duration_seconds,
                                 String notes,
+                                UUID client_request_id,
                                 @NotNull List<ExerciseInput> exercises) {}
 
     public record UpdateInput(String name, String notes) {}
@@ -49,13 +60,36 @@ public class WorkoutController {
     // ── GET /workouts ──────────────────────────────────────────────────────────
 
     @GetMapping
-    public ResponseEntity<Map<String, Object>> getWorkouts(Authentication auth, Locale locale) {
+    public ResponseEntity<Map<String, Object>> getWorkouts(
+            Authentication auth,
+            Locale locale,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+
         UUID userId = userId(auth);
-        List<Map<String, Object>> items = workoutRepo.findByUserIdOrderByDateDesc(userId)
-                .stream()
-                .map(w -> toMap(w, locale))
-                .toList();
-        return ResponseEntity.ok(Map.of("items", items));
+
+        if (page == null && size == null) {
+            // Backwards-compatible non-paginated path — used by older clients
+            // and small accounts. Capped implicitly by typical workout counts.
+            List<Map<String, Object>> items = workoutRepo.findByUserIdOrderByDateDesc(userId)
+                    .stream()
+                    .map(w -> toMap(w, locale))
+                    .toList();
+            return ResponseEntity.ok(Map.of("items", items));
+        }
+
+        int p = page == null ? 0 : Math.max(0, page);
+        int s = size == null ? DEFAULT_PAGE_SIZE : Math.min(MAX_PAGE_SIZE, Math.max(1, size));
+        Pageable pageable = PageRequest.of(p, s);
+        Page<WorkoutJpaEntity> result = workoutRepo.findByUserIdOrderByDateDesc(userId, pageable);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("items", result.getContent().stream().map(w -> toMap(w, locale)).toList());
+        body.put("page", p);
+        body.put("size", s);
+        body.put("total", result.getTotalElements());
+        body.put("has_more", result.hasNext());
+        return ResponseEntity.ok(body);
     }
 
     // ── POST /workouts ─────────────────────────────────────────────────────────
@@ -68,11 +102,22 @@ public class WorkoutController {
             Locale locale) {
 
         UUID userId = userId(auth);
+
+        // Idempotency: if the client retried with the same UUID, return the
+        // existing workout instead of creating a duplicate.
+        if (input.client_request_id() != null) {
+            var existing = workoutRepo.findByUserIdAndClientRequestId(
+                    userId, input.client_request_id());
+            if (existing.isPresent()) {
+                return ResponseEntity.status(HttpStatus.OK).body(toMap(existing.get(), locale));
+            }
+        }
+
         Instant date = Instant.parse(normalizeDate(input.date()));
 
         WorkoutJpaEntity workout = new WorkoutJpaEntity(
                 UUID.randomUUID(), userId, input.name(), date,
-                input.duration_seconds(), input.notes());
+                input.duration_seconds(), input.notes(), input.client_request_id());
 
         for (ExerciseInput ex : input.exercises()) {
             ExerciseJpaEntity exercise = exerciseRepo.findById(ex.exercise_id())
@@ -110,10 +155,18 @@ public class WorkoutController {
     @Transactional
     public ResponseEntity<Map<String, Object>> updateWorkout(@PathVariable UUID id,
                                                               @RequestBody UpdateInput input,
+                                                              @RequestHeader(value = "If-Match", required = false) Long ifMatchVersion,
                                                               Authentication auth,
                                                               Locale locale) {
         WorkoutJpaEntity workout = workoutRepo.findByIdAndUserId(id, userId(auth))
                 .orElseThrow(() -> new LocalizedStatusException(HttpStatus.NOT_FOUND, "error.workout.not.found"));
+
+        // Conditional update — if the client supplied a version, reject when
+        // the server is ahead. Without If-Match, JPA's @Version still protects
+        // against truly concurrent in-flight transactions.
+        if (ifMatchVersion != null && !ifMatchVersion.equals(workout.getVersion())) {
+            throw new LocalizedStatusException(HttpStatus.CONFLICT, "error.workout.conflict");
+        }
 
         if (input.name() != null) workout.setName(input.name());
         if (input.notes() != null) workout.setNotes(input.notes());
@@ -147,6 +200,9 @@ public class WorkoutController {
         map.put("date", w.getDate().toString());
         map.put("duration_seconds", w.getDurationSeconds());
         map.put("notes", w.getNotes());
+        map.put("client_request_id",
+                w.getClientRequestId() != null ? w.getClientRequestId().toString() : null);
+        map.put("version", w.getVersion());
         map.put("exercises", exercises);
         return map;
     }

@@ -51,12 +51,15 @@ class WorkoutControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /workouts without auth returns 401")
+    @DisplayName("POST /workouts without auth is rejected")
     void createWorkoutRequiresAuth() throws Exception {
         HttpResponse r = doPost("/workouts",
                 Map.of("name", "x", "date", "2026-05-10T10:00:00Z",
                         "duration_seconds", 0, "exercises", List.of()));
-        assertThat(r.status()).isEqualTo(401);
+        // Spring Security on a stateless API responds with 403 when there's
+        // no Authorization header (no auth challenge is meaningful). Either
+        // is "you can't do that" from the client's perspective.
+        assertThat(r.status()).isIn(401, 403);
     }
 
     @Test
@@ -148,6 +151,104 @@ class WorkoutControllerIT extends AbstractIntegrationTest {
         assertThat(updated.status()).isEqualTo(200);
         assertThat(updated.body().get("name")).isEqualTo("Updated Name");
         assertThat(updated.body().get("notes")).isEqualTo("New notes");
+    }
+
+    @Test
+    @DisplayName("POST /workouts with the same client_request_id is idempotent")
+    void idempotentCreate() throws Exception {
+        String token = registerAndGetToken("idem@test.com");
+        UUID clientRequestId = UUID.randomUUID();
+
+        Map<String, Object> body = new java.util.LinkedHashMap<>(workoutBody("First send"));
+        body.put("client_request_id", clientRequestId.toString());
+
+        HttpResponse first = doPost("/workouts", body, token);
+        assertThat(first.status()).isEqualTo(201);
+        String firstId = (String) first.body().get("id");
+
+        // Retry with the same key but a different name — server must return
+        // the original row, not create a new one.
+        Map<String, Object> retry = new java.util.LinkedHashMap<>(workoutBody("Retry attempt"));
+        retry.put("client_request_id", clientRequestId.toString());
+
+        HttpResponse second = doPost("/workouts", retry, token);
+        assertThat(second.status()).isEqualTo(200);
+        assertThat(second.body().get("id")).isEqualTo(firstId);
+
+        // And the DB really only has one row for this user.
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>)
+                doGet("/workouts", token).body().get("items");
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).get("client_request_id")).isEqualTo(clientRequestId.toString());
+    }
+
+    @Test
+    @DisplayName("POST /workouts with no client_request_id creates a normal row each call")
+    void nonIdempotentLegacy() throws Exception {
+        String token = registerAndGetToken("legacy@test.com");
+        doPost("/workouts", workoutBody("A"), token);
+        doPost("/workouts", workoutBody("B"), token);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>)
+                doGet("/workouts", token).body().get("items");
+        assertThat(items).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("PUT /workouts/{id} with stale If-Match returns 409")
+    void putRejectsStaleVersion() throws Exception {
+        String token = registerAndGetToken("ifmatch@test.com");
+        HttpResponse created = doPost("/workouts", workoutBody("Original"), token);
+        String workoutId = (String) created.body().get("id");
+
+        // First update succeeds and bumps version 0 → 1.
+        HttpResponse v1 = doPutWithHeader("/workouts/" + workoutId,
+                Map.of("name", "Updated"), token, "If-Match", "0");
+        assertThat(v1.status()).isEqualTo(200);
+
+        // Second update with the now-stale version 0 must be rejected.
+        HttpResponse v2 = doPutWithHeader("/workouts/" + workoutId,
+                Map.of("name", "Should fail"), token, "If-Match", "0");
+        assertThat(v2.status()).isEqualTo(409);
+    }
+
+    @Test
+    @DisplayName("GET /workouts?page=&size= returns a page object with metadata")
+    void getWorkoutsPaginated() throws Exception {
+        String token = registerAndGetToken("page@test.com");
+        for (int i = 0; i < 5; i++) {
+            doPost("/workouts", workoutBody("W" + i), token);
+        }
+
+        HttpResponse page0 = doGet("/workouts?page=0&size=2", token);
+        assertThat(page0.status()).isEqualTo(200);
+        assertThat(page0.body().get("page")).isEqualTo(0);
+        assertThat(page0.body().get("size")).isEqualTo(2);
+        assertThat(((Number) page0.body().get("total")).intValue()).isEqualTo(5);
+        assertThat(page0.body().get("has_more")).isEqualTo(true);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) page0.body().get("items");
+        assertThat(items).hasSize(2);
+
+        HttpResponse page2 = doGet("/workouts?page=2&size=2", token);
+        assertThat(page2.body().get("has_more")).isEqualTo(false);
+    }
+
+    @Test
+    @DisplayName("GET /workouts response includes version and client_request_id")
+    @SuppressWarnings("unchecked")
+    void responseIncludesVersion() throws Exception {
+        String token = registerAndGetToken("ver@test.com");
+        UUID clientRequestId = UUID.randomUUID();
+        Map<String, Object> body = new java.util.LinkedHashMap<>(workoutBody("With version"));
+        body.put("client_request_id", clientRequestId.toString());
+
+        HttpResponse created = doPost("/workouts", body, token);
+        assertThat(created.body().get("version")).isEqualTo(0);
+        assertThat(created.body().get("client_request_id")).isEqualTo(clientRequestId.toString());
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

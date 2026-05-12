@@ -2,6 +2,7 @@ package com.strengthlabs.presentation.middleware;
 
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -50,6 +51,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleIllegalArgument(IllegalArgumentException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("error", ex.getMessage()));
+    }
+
+    /**
+     * Concurrent edits collided on a {@code @Version}-protected entity.
+     * Returned as 409 so the client can refresh and retry instead of seeing
+     * a generic 500.
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<Map<String, String>> handleOptimisticLock(OptimisticLockingFailureException ex) {
+        String msg = messageSource.getMessage(
+                "error.workout.conflict", null, "Conflict — entity modified concurrently",
+                LocaleContextHolder.getLocale());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", msg));
     }
 
     @ExceptionHandler(Exception.class)

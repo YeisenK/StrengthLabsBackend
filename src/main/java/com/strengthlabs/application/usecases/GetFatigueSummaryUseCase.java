@@ -15,6 +15,7 @@ import com.strengthlabs.infrastructure.persistence.jpa.WorkoutSetJpaEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSource;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -206,6 +207,12 @@ public class GetFatigueSummaryUseCase {
                                  FatigueComputeResult fatigue, RiskComputeResult risk,
                                  Map<String, Double> weeklyVolume,
                                  List<Map<String, Object>> trend) {
+        // Double-check before insert — when two requests for the same user
+        // arrive on the same day, only one should win and the other should
+        // silently no-op (its result is equivalent).
+        if (metricsRepo.findByUserIdAndMetricDate(userId, today).isPresent()) {
+            return;
+        }
         try {
             TrainingMetricsJpaEntity entity = new TrainingMetricsJpaEntity(
                     UUID.randomUUID(), userId, today,
@@ -218,6 +225,10 @@ public class GetFatigueSummaryUseCase {
                     fatigue.computeAvailable() && risk.computeAvailable()
             );
             metricsRepo.save(entity);
+        } catch (DataIntegrityViolationException dup) {
+            // Lost the race against another concurrent request — the cache
+            // entry already exists. This is expected, not an error.
+            log.debug("Training metrics already persisted for user {} on {}", userId, today);
         } catch (Exception e) {
             log.warn("Could not persist training metrics for user {}: {}", userId, e.getMessage());
         }

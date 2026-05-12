@@ -14,8 +14,8 @@ public class ExerciseJpaEntity {
     @Column(nullable = false)
     private String name;
 
-    @Column(name = "name_es")
-    private String nameEs;
+    @Column(name = "name_es", nullable = false)
+    private String nameEs = "";
 
     @Column(name = "muscle_group", nullable = false)
     private String muscleGroup;
@@ -36,7 +36,7 @@ public class ExerciseJpaEntity {
                               boolean isCustom, UUID createdBy, String nameEs) {
         this.id = id;
         this.name = name;
-        this.nameEs = nameEs;
+        this.nameEs = nameEs != null ? nameEs : "";
         this.muscleGroup = muscleGroup;
         this.isCustom = isCustom;
         this.createdBy = createdBy;

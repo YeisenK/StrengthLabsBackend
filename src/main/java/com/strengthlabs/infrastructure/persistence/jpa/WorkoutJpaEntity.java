@@ -29,7 +29,21 @@ public class WorkoutJpaEntity {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
-    @OneToMany(mappedBy = "workout", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    /**
+     * Client-generated idempotency key. Optional for backwards compatibility
+     * with pre-idempotency clients. When present, the unique index on
+     * {@code (user_id, client_request_id)} guarantees POST retries don't
+     * duplicate rows.
+     */
+    @Column(name = "client_request_id", columnDefinition = "uuid")
+    private UUID clientRequestId;
+
+    /** Optimistic concurrency token — incremented on every update. */
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
+    @OneToMany(mappedBy = "workout", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("orderIndex ASC")
     private List<WorkoutExerciseJpaEntity> exercises = new ArrayList<>();
 
@@ -37,12 +51,18 @@ public class WorkoutJpaEntity {
 
     public WorkoutJpaEntity(UUID id, UUID userId, String name, Instant date,
                              int durationSeconds, String notes) {
+        this(id, userId, name, date, durationSeconds, notes, null);
+    }
+
+    public WorkoutJpaEntity(UUID id, UUID userId, String name, Instant date,
+                             int durationSeconds, String notes, UUID clientRequestId) {
         this.id = id;
         this.userId = userId;
         this.name = name;
         this.date = date;
         this.durationSeconds = durationSeconds;
         this.notes = notes;
+        this.clientRequestId = clientRequestId;
     }
 
     public UUID getId() { return id; }
@@ -53,6 +73,8 @@ public class WorkoutJpaEntity {
     public int getDurationSeconds() { return durationSeconds; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
+    public UUID getClientRequestId() { return clientRequestId; }
+    public Long getVersion() { return version; }
     public List<WorkoutExerciseJpaEntity> getExercises() { return exercises; }
     public void addExercise(WorkoutExerciseJpaEntity exercise) { exercises.add(exercise); }
 }

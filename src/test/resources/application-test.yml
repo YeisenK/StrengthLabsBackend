@@ -8,6 +8,8 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
   flyway:
     enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
 
 compute-engine:
   url: http://localhost:9999
@@ -17,6 +19,9 @@ google:
 
 jwt:
   expiration-ms: 3600000
+  # Throwaway test keys — never used outside of integration tests.
+  private-key: MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDUHAUKpZpCoVDbPLrxPmd672EYbiVpgAVdvPhXAL6pIwY03fcRMV57sbWhe8aBxRLRciV2CZ8xFlniAKbABMXTs8VQ4rqtMz4gtfG15jdLCQxB3SN/zPK+m6fS4+XaWy/l+DRMlBefimYyGnW1ZrPOzgcojpU4YhB1oB2Z/1r3/0FnxgJng/K+VQDXd3aaA3OzNP+mmGTkyxvFYQGgCtU+0sISyZ2ngY2LnynwL2ITQ+1E3vshyYPfqgVXAXrkdlenQBz2nL00ibrl+KVd5C9lxP5+VFZAeJ/zvz/rGjNJEedqBPv7N6a0X9BCJjsHhRFXiEbfzKk3/tlzA32q75FNAgMBAAECggEARNT4790Qw8mctyCsm8gABb1z+V0ZJ/TjCOnff0BfHv0eMP7NBBfMzQA87HQB1a/x7OUJchYqQmA59+T1N//0gMBoaljBcp5b7XqNv1U/oUqE30TXlcwZBDD4E7BgMW2BDDRxKF6wkdX0VxMOGrmC5Twnx4oJs5vjMoCsyoI675ofRIC0hm8c9GCit1KaZs3cGit9xxA9TyjaoYo5qc/FEw6eUZF7TKloY7FZUs96UHjujkWnq1/l5JKz2vbZlJdJnjezwHS89dIvXCfMYeqrfat9YPjMztn1dA/mltgSzb/7vCJkS2j826dBSJ1AZ6z35B1mPJUa4ucDPAR5T1j7AwKBgQDuZrszn5HL1qjAIzsLKeaokXeZy86s6UucmV3BibCKzhrm51Cw6WSNaIXEs9D0AyoZ63/QRblvgOYxjtYbWKO61MJ+Axw4y6e2SbMkBdTbsJd4Kzwb6xockPVJHY4Wg9HIhG93nnAfUaAzF1tUBNEZyzg3jRj3F6jT7q4A/nAv4wKBgQDjxG3zi/y6WqaNUivridIXksYF6v1grBS8XruiBWYw3QtOHcU9617WS3aAqRjGhkQ+gFbnlWp+Ta1UqWA9ZcNJarJR5LuJTt/4Mi+s6OuW/cSgXIR/pcYsZ7zp+vxPEFc7cQVUuMaihx4LzVkJaeGDxhl9whDEc+lAk6qwIPWhDwKBgBDfGFR48Hp6gIrIc39AweAgG1S5BbFa+Uzl1arCscnA+EprCFzcx47yXLUk/J6oMqyO7AazSIJJnwDW2PQqe7vXHsSIN9EVKJNP9+uOtheuEaohdSmMo9Zts84u10Vkos4MAU932Pt+bVXwSzhQ9vNaXGoiBChIdlw5Qfs0BoB9AoGBANwQ2U9cbSY9GfkncMoWEoi2RmBHaOLzwOE0AsSLxO3nVNn4B7BI7wvMQ8YSG58M8XkWFWGSSx+Xu6Y2NId+AE66KWrYvp3vOJUdIFVHgwETVdy/J0ISEMSswqmr2AYoOrBzBfySv1EfjddHZASlacAhMlYAoKS/fZnoUx3z6n/fAoGBAJpPCBF9QlV9VFlfefjWCBiYggdauiodG7seUVW/3ZZvdU+T2LuEFIHSpizbV3TefjoZSpUgfLfQWkNKaUOnwljgkeGRpLkrwXFVg18FX+B+Oh20pwmW0b3djjXHh4dQtfWoX3NKQ/+aQ8yP9i/6TV0uqx/qY6y8gMAfXYS6I7wS
+  public-key: MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1BwFCqWaQqFQ2zy68T5neu9hGG4laYAFXbz4VwC+qSMGNN33ETFee7G1oXvGgcUS0XIldgmfMRZZ4gCmwATF07PFUOK6rTM+ILXxteY3SwkMQd0jf8zyvpun0uPl2lsv5fg0TJQXn4pmMhp1tWazzs4HKI6VOGIQdaAdmf9a9/9BZ8YCZ4PyvlUA13d2mgNzszT/pphk5MsbxWEBoArVPtLCEsmdp4GNi58p8C9iE0PtRN77IcmD36oFVwF65HZXp0Ac9py9NIm65filXeQvZcT+flRWQHif878/6xozSRHnagT7+zemtF/QQiY7B4URV4hG38ypN/7ZcwN9qu+RTQIDAQAB
 
 security:
   cors:
@@ -30,3 +35,4 @@ logging:
     org.testcontainers: WARN
     com.zaxxer.hikari: WARN
     org.hibernate.SQL: WARN
+    org.flywaydb: INFO

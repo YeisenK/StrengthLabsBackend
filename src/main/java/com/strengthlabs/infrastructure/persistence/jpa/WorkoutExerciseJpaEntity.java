@@ -1,6 +1,7 @@
 package com.strengthlabs.infrastructure.persistence.jpa;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.BatchSize;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -24,7 +25,14 @@ public class WorkoutExerciseJpaEntity {
     @Column(name = "order_index", nullable = false)
     private int orderIndex;
 
-    @OneToMany(mappedBy = "workoutExercise", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    /**
+     * Sets are LAZY + batched. Together with @EntityGraph on the parent that
+     * fetches exercises + exercise (one bag), this avoids the
+     * MultipleBagFetchException Hibernate throws when two collections are
+     * JOIN FETCH'ed simultaneously, while keeping the read paths bounded.
+     */
+    @OneToMany(mappedBy = "workoutExercise", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @BatchSize(size = 25)
     @OrderBy("orderIndex ASC")
     private List<WorkoutSetJpaEntity> sets = new ArrayList<>();
 

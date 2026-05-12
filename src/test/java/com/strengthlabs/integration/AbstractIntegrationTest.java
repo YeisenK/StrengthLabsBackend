@@ -1,6 +1,7 @@
 package com.strengthlabs.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.strengthlabs.api.StrengthLabsApiApplication;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,7 +24,7 @@ import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
+@SpringBootTest(classes = StrengthLabsApiApplication.class, webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @ActiveProfiles("test")
 @Testcontainers
 public abstract class AbstractIntegrationTest {
@@ -91,6 +92,16 @@ public abstract class AbstractIntegrationTest {
                 .andReturn());
     }
 
+    protected HttpResponse doPutWithHeader(String url, Object body, String token,
+                                           String headerName, String headerValue) throws Exception {
+        return parse(mockMvc.perform(put(url)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + token)
+                .header(headerName, headerValue)
+                .content(objectMapper.writeValueAsString(body)))
+                .andReturn());
+    }
+
     protected HttpResponse doDelete(String url, String token) throws Exception {
         return parse(mockMvc.perform(delete(url)
                 .header("Authorization", "Bearer " + token))
@@ -107,6 +118,12 @@ public abstract class AbstractIntegrationTest {
     private HttpResponse parse(MvcResult result) throws Exception {
         MockHttpServletResponse response = result.getResponse();
         String content = response.getContentAsString();
+        if (response.getStatus() >= 500) {
+            System.err.println("[IT] 5xx body: " + content);
+            if (result.getResolvedException() != null) {
+                result.getResolvedException().printStackTrace();
+            }
+        }
         Map<String, Object> body = content.isBlank() ? Map.of() :
                 objectMapper.readValue(content, Map.class);
         Map<String, List<String>> headers = new LinkedHashMap<>();
