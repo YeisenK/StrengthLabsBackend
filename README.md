@@ -160,10 +160,3 @@ Flutter client
 ```
 
 Spring Boot never runs mathematical models. FastAPI never touches the database.
-
----
-
-## Author
-
-**Yeisen Kenneth López Reyes** · IT Engineering · Universidad Anáhuac  
-[linkedin.com/in/yeisen-kenneth-lópez-reyes-a423b633b](https://linkedin.com/in/yeisen-kenneth-lópez-reyes-a423b633b) · [github.com/YeisenK](https://github.com/YeisenK)
