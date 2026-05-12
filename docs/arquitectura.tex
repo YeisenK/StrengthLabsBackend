@@ -1,21 +1,27 @@
 % =============================================================================
-% Strength Labs — Documento de arquitectura
+% Strength Labs — Documento de arquitectura (detallado)
 % =============================================================================
 \documentclass[11pt,a4paper]{article}
 
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage[spanish]{babel}
+\usepackage[spanish,es-noshorthands]{babel}
 \usepackage{geometry}
-\geometry{margin=2.5cm}
+\geometry{margin=2.4cm}
 \usepackage{hyperref}
 \usepackage{xcolor}
 \usepackage{listings}
 \usepackage{enumitem}
 \usepackage{tabularx}
 \usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
 \usepackage{tikz}
-\usetikzlibrary{positioning,arrows.meta,shapes.geometric,fit,backgrounds}
+\usepackage{float}
+\usepackage{microtype}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usetikzlibrary{positioning,arrows.meta,shapes.geometric,fit,backgrounds,calc}
 
 \hypersetup{
   colorlinks=true,
@@ -24,347 +30,980 @@
   citecolor=blue!50!black,
 }
 
+% ── Estilo de listings ───────────────────────────────────────────────────────
+\definecolor{lstbg}{RGB}{248,248,248}
+\definecolor{lstkw}{RGB}{0,80,160}
+\definecolor{lststr}{RGB}{160,0,80}
+\definecolor{lstcom}{RGB}{0,100,40}
 \lstset{
-  basicstyle=\ttfamily\small,
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{lstbg},
+  keywordstyle=\color{lstkw}\bfseries,
+  stringstyle=\color{lststr},
+  commentstyle=\color{lstcom}\itshape,
   breaklines=true,
   frame=single,
+  framesep=4pt,
+  rulecolor=\color{black!30},
   columns=fullflexible,
   showstringspaces=false,
+  numbers=none,
+  captionpos=b,
 }
 
-\title{Strength Labs \\ \large Arquitectura técnica}
+% ── Encabezado / pie ─────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small Strength Labs}
+\fancyhead[R]{\small Arquitectura técnica}
+\fancyfoot[C]{\thepage}
+
+% ── Comandos de utilidad ─────────────────────────────────────────────────────
+\newcommand{\file}[1]{\texttt{\small #1}}
+\newcommand{\cls}[1]{\texttt{\small #1}}
+\newcommand{\http}[1]{\texttt{\small #1}}
+
+\title{
+  \vspace*{1.2cm}
+  {\Huge\bfseries Strength Labs}\\[0.6cm]
+  {\Large Arquitectura técnica detallada}\\[0.4cm]
+  \rule{0.6\linewidth}{0.4pt}\\[0.4cm]
+  {\large Mobile training tracker — Flutter, Spring Boot, FastAPI}
+}
 \author{Yeisen Kenneth}
-\date{Mayo 2026}
+\date{Mayo 2026 — versión 2}
 
 \begin{document}
 \maketitle
+\thispagestyle{empty}
+\vfill
+\begin{center}
+\small
+Repositorios: \url{github.com/YeisenK/StrengthLabs} (cliente Flutter),
+\url{github.com/YeisenK/StrengthLabsBackend} (backend Spring Boot + compute Python).\\
+Endpoint público: \url{https://api.blocsa.com}.
+\end{center}
+\clearpage
+
 \tableofcontents
+\listoffigures
+\listoftables
 \clearpage
 
 % =============================================================================
-\section{Contexto}
+\section{Resumen ejecutivo}
 % =============================================================================
 
-Strength Labs es una aplicación de seguimiento de entrenamiento de fuerza pensada para uso personal y como entrega académica. El alcance del proyecto cubre:
+Strength Labs es una aplicación móvil multiplataforma para el registro de entrenamientos de fuerza con seguimiento de carga interna (ATL, CTL, TSB, ACWR) y modelos de riesgo de lesión y sobreentrenamiento. El sistema se compone de tres servicios distribuidos:
 
 \begin{itemize}[leftmargin=*]
-  \item Registro de sesiones de entrenamiento (ejercicios, series, RPE).
-  \item Cálculo de carga aguda/crónica (ATL/CTL/TSB/ACWR) y un índice de readiness.
-  \item Catálogo de rutinas sugeridas por nivel y objetivo.
-  \item Funcionamiento sin conexión: cualquier acción que el usuario realice debe persistirse localmente y sincronizarse cuando la red regrese.
+  \item Un cliente Flutter offline-first con base de datos local SQLite (Drift), cola de sincronización con reintentos idempotentes, y soporte para Android e iOS.
+  \item Un backend Java + Spring Boot 4 con persistencia en PostgreSQL gestionada por Flyway, autenticación JWT RS256, control de concurrencia optimista y filtro de correlación por request.
+  \item Un microservicio Python + FastAPI sin estado que ejecuta los modelos numéricos de fatiga y riesgo, consumido por el backend mediante HTTP con timeouts y degradación controlada ante fallos.
 \end{itemize}
 
-Esta versión del documento sustituye a la anterior, que describía un backend en Python/FastAPI. El backend principal es Java + Spring Boot; sólo subsiste un microservicio Python para el cómputo de fatiga.
+El propósito de este documento es servir como referencia completa para mantenedores, integradores y revisores. Cubre el modelo de datos, los contratos de API, los flujos de autenticación y sincronización, la estrategia de pruebas, el despliegue real (incluyendo el túnel Cloudflare con dominio \texttt{api.blocsa.com}), las decisiones arquitectónicas y sus trade-offs.
 
 % =============================================================================
-\section{Vista general}
+\section{Glosario}
 % =============================================================================
 
-\begin{center}
+\begin{longtable}{p{0.22\textwidth} p{0.72\textwidth}}
+\toprule
+\textbf{Término} & \textbf{Definición} \\
+\midrule
+\endhead
+\textbf{ATL} & \textit{Acute Training Load}. Promedio exponencial de la carga de entrenamiento de los últimos 7 días. \\
+\textbf{CTL} & \textit{Chronic Training Load}. Promedio exponencial de los últimos 42 días. \\
+\textbf{TSB} & \textit{Training Stress Balance} = CTL $-$ ATL. Cuanto más negativo, más fatiga acumulada. \\
+\textbf{ACWR} & \textit{Acute:Chronic Workload Ratio}. ATL/CTL. Por encima de $\sim$1{,}5 sube el riesgo de lesión. \\
+\textbf{Monotony} & Desviación estándar de la carga diaria normalizada. Alta monotonía + alta carga $\Rightarrow$ alto strain. \\
+\textbf{Strain} & Producto carga $\times$ monotony. Indicador agregado de estrés semanal. \\
+\textbf{Ramp rate} & Variación semanal de CTL. Por encima de cierto umbral aumenta el riesgo. \\
+\textbf{RPE} & \textit{Rate of Perceived Exertion}, escala 1–10 que el usuario asigna a una serie. \\
+\textbf{Cubit} & Variante simplificada de Bloc; almacén de estado emitido vía streams. \\
+\textbf{Drift} & ORM SQLite para Dart/Flutter con codegen y streams reactivos. \\
+\textbf{Flyway} & Migrador de bases de datos basado en archivos SQL versionados. \\
+\textbf{Idempotency key} & Identificador único por intención de mutación, enviado por el cliente para deduplicar reintentos. En este sistema se llama \texttt{client\_request\_id}. \\
+\textbf{Optimistic locking} & Control de concurrencia donde cada fila lleva una versión; los updates fallan si la versión esperada no coincide con la actual. \\
+\textbf{N+1 query} & Patrón anti-rendimiento de ORM donde cargar una lista dispara una consulta por elemento para asociaciones diferidas. \\
+\textbf{Quick tunnel} & Túnel Cloudflare efímero (\texttt{trycloudflare.com}) sin cuenta. \\
+\textbf{Named tunnel} & Túnel Cloudflare persistente bajo cuenta, con dominio fijo y reinicio sin rotación. \\
+\bottomrule
+\end{longtable}
+
+% =============================================================================
+\section{Vista de contexto}
+% =============================================================================
+
+\subsection{Diagrama C4 — nivel 1}
+
+\begin{figure}[H]
+\centering
 \begin{tikzpicture}[
-  box/.style={rectangle,draw,rounded corners,minimum height=1.2cm,minimum width=3.6cm,align=center},
-  service/.style={box,fill=blue!8},
-  store/.style={box,fill=orange!10},
-  external/.style={box,fill=gray!10,dashed},
-  arrow/.style={-Latex,thick},
+  actor/.style={rectangle,draw,minimum height=1.1cm,minimum width=2.6cm,align=center,fill=gray!10},
+  system/.style={rectangle,draw,thick,rounded corners,minimum height=1.4cm,minimum width=4.4cm,align=center,fill=blue!12},
+  external/.style={rectangle,draw,dashed,minimum height=1.1cm,minimum width=3.0cm,align=center,fill=orange!10},
+  arrow/.style={-Latex,thick,font=\footnotesize},
 ]
-  \node[service] (app)   {Flutter app\\\small (iOS/Android)};
-  \node[service,right=2.3cm of app] (api) {Spring Boot API\\\small (puerto 8000)};
-  \node[service,right=2.0cm of api] (compute) {FastAPI compute\\\small (puerto 8001)};
-  \node[store,below=1.2cm of api] (pg) {PostgreSQL 16};
-  \node[external,below=1.2cm of app] (drift) {Drift SQLite\\\small local};
+  \node[actor] (user) {Usuario\\\small (atleta amateur)};
+  \node[system,right=3.2cm of user] (sys) {Strength Labs\\\small Mobile + Backend};
+  \node[external,right=3.0cm of sys, yshift=0.8cm] (google) {Google Identity};
+  \node[external,right=3.0cm of sys, yshift=-0.8cm] (cf) {Cloudflare\\Edge};
 
-  \draw[arrow] (app) -- node[above,font=\small]{HTTPS} (api);
-  \draw[arrow] (api) -- node[above,font=\small]{HTTP} (compute);
-  \draw[arrow] (api) -- (pg);
-  \draw[arrow,<->] (app) -- (drift);
+  \draw[arrow] (user) -- node[above]{registra workouts\\\small consulta fatiga} (sys);
+  \draw[arrow] (sys) -- (google);
+  \draw[arrow] (sys) -- node[below right,xshift=-4pt,yshift=2pt]{TLS} (cf);
 \end{tikzpicture}
-\end{center}
+\caption{Vista de contexto. Strength Labs ofrece al atleta un registro de entrenamientos con métricas de carga y se apoya en Google para autenticación opcional y en Cloudflare para la terminación TLS pública.}
+\end{figure}
 
-\paragraph{Componentes.}
-\begin{description}[leftmargin=2cm,style=nextline]
-  \item[Flutter app] Mantiene la base de datos local con Drift y una cola de sincronización. Los flujos de escritura se confirman antes de hablar con el servidor.
-  \item[Spring Boot API] Es la autoridad de datos: persistencia en Postgres, JWT RS256, idempotencia y locking optimista por entrada de \texttt{workouts}.
-  \item[FastAPI compute] Servicio sin estado que recibe sesiones y devuelve métricas de carga y riesgo. Si está caído el backend devuelve valores neutros y deja constancia con \texttt{compute\_available=false}.
-  \item[Postgres + Flyway] Esquema gobernado por migraciones inmutables (\texttt{V1}\ldots\texttt{V6}). \texttt{ddl-auto: validate} garantiza que las entidades JPA y la base están alineadas.
-\end{description}
+\subsection{Actores}
 
-% =============================================================================
-\section{Stack tecnológico}
-% =============================================================================
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Atleta}. Es el único actor humano. Crea su cuenta (correo o Google), registra sesiones, consulta su tendencia de fatiga, y exporta sus datos a XLSX/CSV.
+  \item \textbf{Servicio de identidad de Google}. Verificación del \textit{ID token} OAuth durante el flujo de Google Sign-In. No es indispensable: el sistema funciona con email/password.
+  \item \textbf{Red Cloudflare}. Termina TLS, expone el dominio público \texttt{api.blocsa.com} y reenvía a \texttt{localhost:8080} en el host del backend mediante un \textit{named tunnel}.
+\end{itemize}
 
-\begin{tabularx}{\textwidth}{lXX}
-  \toprule
-  \textbf{Capa} & \textbf{Frontend (\texttt{strengthlabs\_beta})} & \textbf{Backend (\texttt{StrengthLabsBackend})} \\
-  \midrule
-  Lenguaje    & Dart 3.10                         & Java 21 \\
-  Framework   & Flutter 3                         & Spring Boot 4.0.3 \\
-  Estado      & \texttt{flutter\_bloc} (Cubit)    & --- \\
-  HTTP        & \texttt{dio} 5                    & Spring MVC + RestTemplate \\
-  Persistencia local & \texttt{drift} (SQLite)      & --- \\
-  Persistencia remota & --- (vía SyncManager)     & Spring Data JPA + Hibernate 7 \\
-  Migraciones & ---                               & Flyway (módulo \texttt{spring-boot-flyway}) \\
-  Auth        & \texttt{google\_sign\_in} + JWT   & Spring Security + JJWT 0.12.6 (RS256) \\
-  Conectividad & \texttt{connectivity\_plus}      & --- \\
-  Tests       & \texttt{flutter\_test} + \texttt{bloc\_test} & JUnit 5 + Testcontainers (Postgres) \\
-  \bottomrule
+\subsection{Drivers arquitectónicos}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Driver} & \textbf{Implicación} \\
+\midrule
+Funcionalidad offline & La app debe permitir crear/editar workouts sin red y reconciliar al volver online. Esto fuerza una BD local, una cola de sync y claves de idempotencia. \\
+Seguridad razonable & JWT firmados asimétricamente, claves fuera del repositorio, rate-limiting en auth, no exponer trazas al cliente. \\
+Trazabilidad & Cada request lleva un \texttt{X-Request-Id} echoed en respuesta y MDC para correlacionar logs cliente/servidor. \\
+Coste operativo bajo & Despliegue en un solo host (Postgres + Spring + FastAPI + Cloudflared) con scripts simples (systemd). \\
+Alcance académico & No se invierte en infraestructura de alto nivel (Redis distribuido, Kubernetes, Sentry); las decisiones documentan deliberadamente dónde la solución se queda corta para producción real. \\
+\bottomrule
 \end{tabularx}
+\caption{Drivers arquitectónicos.}
+\end{table}
 
 % =============================================================================
-\section{Arquitectura del backend}
+\section{Vista de contenedores}
 % =============================================================================
 
-\subsection{Estructura hexagonal}
+\subsection{Diagrama C4 — nivel 2}
 
-El backend separa responsabilidades en cuatro paquetes principales:
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  box/.style={rectangle,draw,rounded corners,minimum height=1.1cm,minimum width=3.4cm,align=center,font=\small},
+  app/.style={box,fill=blue!10},
+  svc/.style={box,fill=blue!15},
+  ext/.style={box,fill=orange!10},
+  store/.style={cylinder,draw,shape border rotate=90,aspect=0.25,minimum height=1.0cm,minimum width=1.6cm,align=center,font=\small,fill=yellow!15},
+  arrow/.style={-Latex,thick,font=\footnotesize},
+]
+  \node[app] (flutter) {Flutter app\\\small iOS / Android};
+  \node[store,below=0.8cm of flutter] (drift) {Drift\\\small SQLite local};
+  \node[ext,right=2.8cm of flutter,yshift=1.4cm] (cf) {Cloudflare Tunnel\\\small api.blocsa.com};
+  \node[svc,right=2.8cm of cf,yshift=-1.0cm] (api) {Spring Boot API\\\small :8080};
+  \node[svc,right=1.4cm of api] (compute) {Compute engine\\\small FastAPI :8001};
+  \node[store,below=0.8cm of api] (pg) {PostgreSQL 16};
+
+  \draw[arrow] (flutter) -- node[above,yshift=4pt]{HTTPS} (cf);
+  \draw[arrow] (cf) -- node[above,yshift=2pt]{HTTP local} (api);
+  \draw[arrow] (api) -- node[above]{HTTP} (compute);
+  \draw[arrow] (api) -- (pg);
+  \draw[arrow,<->] (flutter) -- (drift);
+\end{tikzpicture}
+\caption{Vista de contenedores. El cliente Flutter mantiene una base local Drift y habla únicamente con \texttt{api.blocsa.com}. El borde Cloudflare reenvía a \texttt{localhost:8080} en el host del backend, que coordina Postgres y el microservicio Python.}
+\end{figure}
+
+\subsection{Comunicación entre contenedores}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Flutter $\rightarrow$ Cloudflare $\rightarrow$ Spring}: HTTPS / HTTP REST. Una sola dirección base (\texttt{ApiConstants.baseUrl}). El cliente persiste todas las mutaciones en Drift antes de salir a red.
+  \item \textbf{Flutter $\leftrightarrow$ Drift}: bidireccional, no es ``almacenamiento de respaldo'': es la fuente de verdad para reads.
+  \item \textbf{Spring $\rightarrow$ Compute Engine}: POST JSON contra \texttt{/compute/fatigue} y \texttt{/compute/risk}. Timeouts (2\,s connect, 5\,s read) y fallback a valores neutros.
+  \item \textbf{Spring $\leftrightarrow$ PostgreSQL}: JDBC vía HikariCP. Esquema gobernado por Flyway.
+\end{itemize}
+
+% =============================================================================
+\section{Tecnologías y dependencias}
+% =============================================================================
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Capa} & \textbf{Frontend} & \textbf{Backend} \\
+\midrule
+Lenguaje & Dart 3.10 & Java 21 \\
+Framework & Flutter 3 & Spring Boot 4.0.3 \\
+Estado & \texttt{flutter\_bloc} (Cubit) & — \\
+Navegación & \texttt{go\_router} & — \\
+HTTP & \texttt{dio} 5 + interceptores & Spring MVC + RestTemplate \\
+Persistencia local & \texttt{drift} (SQLite) & — \\
+Persistencia remota & — & Spring Data JPA + Hibernate 7 \\
+Migraciones & — & Flyway (\texttt{spring-boot-flyway}) \\
+Auth & JWT + \texttt{google\_sign\_in} & Spring Security + JJWT 0.12.6 RS256 \\
+Almacenamiento de claves & \texttt{flutter\_secure\_storage} & Variables de entorno (PEM base64) \\
+Conectividad & \texttt{connectivity\_plus} & — \\
+Identidad & \texttt{uuid} v4 (\textit{client\_request\_id}, ids locales) & \texttt{UUID.randomUUID} para PK \\
+Pruebas & \texttt{flutter\_test} + \texttt{bloc\_test} + \texttt{mocktail} & JUnit 5 + Testcontainers Postgres \\
+\bottomrule
+\end{tabularx}
+\caption{Stack tecnológico.}
+\end{table}
+
+El microservicio Python utiliza FastAPI con Pydantic para los modelos de entrada/salida y NumPy / pandas para los cálculos de carga.
+
+% =============================================================================
+\section{Backend: Spring Boot API}
+% =============================================================================
+
+\subsection{Capas hexagonales}
+
+El backend separa responsabilidades en cinco paquetes Java alineados con la arquitectura hexagonal:
 
 \begin{description}[leftmargin=2cm,style=nextline]
-  \item[\texttt{api}] Configuración de Spring, seguridad y RestTemplate con timeouts (2s connect, 5s read).
-  \item[\texttt{application}] Casos de uso (\texttt{GetFatigueSummaryUseCase}), DTOs y puertos a servicios externos.
-  \item[\texttt{domain}] Entidades de dominio y reglas de negocio puras.
-  \item[\texttt{infrastructure}] Adaptadores: JPA entities, repositorios, JWT, RBAC, rate limiting, microservicio de cómputo, filtro de correlación.
-  \item[\texttt{presentation}] Controladores REST y middleware (\texttt{GlobalExceptionHandler}, \texttt{CorrelationIdFilter}).
+  \item[\file{com.strengthlabs.api}] Punto de entrada Spring Boot y configuración (seguridad, i18n, \texttt{RestTemplate} con timeouts).
+  \item[\file{com.strengthlabs.application}] Casos de uso (\cls{GetFatigueSummaryUseCase}), DTOs internos y puertos hacia servicios externos.
+  \item[\file{com.strengthlabs.domain}] Entidades de dominio (\cls{User}, \cls{Routine}) y reglas puras sin dependencia de framework.
+  \item[\file{com.strengthlabs.infrastructure}] Adaptadores: entidades JPA, repositorios Spring Data, adaptador HTTP para el compute engine, infraestructura de seguridad (\cls{JwtTokenProvider}, \cls{RbacFilter}, \cls{LoginRateLimitFilter}, \cls{RevokedTokenStore}) y filtros web (\cls{CorrelationIdFilter}).
+  \item[\file{com.strengthlabs.presentation}] Controladores REST (\cls{AuthController}, \cls{WorkoutController}, \cls{FatigueController}, \cls{RoutineController}, \cls{ExerciseController}) y middleware (\cls{GlobalExceptionHandler}, \cls{LocalizedStatusException}).
 \end{description}
 
 \subsection{Modelo de datos}
 
-Las tablas relevantes (resumen de las migraciones \texttt{V1}\,\ldots\,\texttt{V6}):
+\subsubsection{Diagrama entidad–relación}
 
-\begin{lstlisting}[language=SQL]
-users(id, name, email UNIQUE, password_hash, role, active)
-exercises(id, name, name_es, muscle_group, is_custom, created_by)
-workouts(id, user_id, name, date, duration_seconds, notes,
-         client_request_id, version)
-workout_exercises(id, workout_id, exercise_id, order_index)
-workout_sets(id, workout_exercise_id, weight_kg, reps, rpe, order_index)
-training_metrics(id, user_id, metric_date,
-                  atl, ctl, tsb, acwr, monotony, strain, ramp_rate,
-                  readiness_score, injury_risk_score,
-                  overtraining_risk_score, composite_risk_score,
-                  risk_level, dominant_factor,
-                  risk_flags_json, recommendations_json,
-                  weekly_volume_json, trend_json,
-                  compute_available, created_at,
-                  UNIQUE(user_id, metric_date))
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  entity/.style={rectangle,draw,minimum width=2.6cm,minimum height=0.9cm,align=center,font=\small,fill=yellow!10},
+  arrow/.style={-Latex,thick,font=\scriptsize},
+]
+  \node[entity] (user) {users};
+  \node[entity,right=2.6cm of user] (workout) {workouts};
+  \node[entity,right=2.6cm of workout] (we) {workout\_exercises};
+  \node[entity,right=2.6cm of we] (sets) {workout\_sets};
+  \node[entity,below=0.9cm of we] (ex) {exercises};
+  \node[entity,below=0.9cm of user] (metrics) {training\_metrics};
+  \node[entity,below=0.9cm of workout] (rout) {routines};
+  \node[entity,below=0.9cm of sets] (rdays) {routine\_days};
+
+  \draw[arrow] (user) -- node[above]{1:N} (workout);
+  \draw[arrow] (workout) -- node[above]{1:N} (we);
+  \draw[arrow] (we) -- node[above]{1:N} (sets);
+  \draw[arrow] (we) -- node[right]{N:1} (ex);
+  \draw[arrow] (user) -- node[right]{1:N} (metrics);
+  \draw[arrow] (rout) -- node[right]{1:N} (rdays);
+\end{tikzpicture}
+\caption{Modelo entidad–relación simplificado del backend.}
+\end{figure}
+
+\subsubsection{DDL clave (tras V6)}
+
+\begin{lstlisting}[language=SQL,caption={Definición de las tablas \texttt{users}, \texttt{workouts} y \texttt{training\_metrics}.}]
+CREATE TABLE users (
+    id            UUID         PRIMARY KEY,
+    name          VARCHAR(255) NOT NULL,
+    email         VARCHAR(255) NOT NULL UNIQUE,
+    password_hash TEXT         NOT NULL,
+    role          VARCHAR(20)  NOT NULL DEFAULT 'USER',
+    active        BOOLEAN      NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE workouts (
+    id                UUID         PRIMARY KEY,
+    user_id           UUID         NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    name              VARCHAR(255) NOT NULL,
+    date              TIMESTAMPTZ  NOT NULL,
+    duration_seconds  INT          NOT NULL DEFAULT 0,
+    notes             TEXT,
+    client_request_id UUID,
+    version           BIGINT       NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX uq_workouts_user_client_request
+    ON workouts (user_id, client_request_id)
+    WHERE client_request_id IS NOT NULL;
+
+CREATE TABLE training_metrics (
+    id                       UUID            PRIMARY KEY,
+    user_id                  UUID            NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    metric_date              DATE            NOT NULL,
+    atl                      DOUBLE PRECISION NOT NULL DEFAULT 0,
+    ctl                      DOUBLE PRECISION NOT NULL DEFAULT 0,
+    tsb                      DOUBLE PRECISION NOT NULL DEFAULT 0,
+    acwr                     DOUBLE PRECISION NOT NULL DEFAULT 0,
+    monotony                 DOUBLE PRECISION NOT NULL DEFAULT 0,
+    strain                   DOUBLE PRECISION NOT NULL DEFAULT 0,
+    ramp_rate                DOUBLE PRECISION NOT NULL DEFAULT 0,
+    readiness_score          DOUBLE PRECISION NOT NULL DEFAULT 0,
+    injury_risk_score        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    overtraining_risk_score  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    composite_risk_score     DOUBLE PRECISION NOT NULL DEFAULT 0,
+    risk_level               VARCHAR(20)     NOT NULL DEFAULT 'low',
+    dominant_factor          VARCHAR(100)    NOT NULL DEFAULT '',
+    risk_flags_json          TEXT            NOT NULL DEFAULT '[]',
+    recommendations_json     TEXT            NOT NULL DEFAULT '[]',
+    weekly_volume_json       TEXT            NOT NULL DEFAULT '{}',
+    trend_json               TEXT            NOT NULL DEFAULT '[]',
+    compute_available        BOOLEAN         NOT NULL DEFAULT FALSE,
+    created_at               TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_training_metrics_user_date UNIQUE (user_id, metric_date)
+);
 \end{lstlisting}
 
-Restricciones clave:
+\subsubsection{Migraciones Flyway}
 
-\begin{itemize}[leftmargin=*]
-  \item \texttt{UNIQUE(user\_id, client\_request\_id)} parcial (sólo cuando no es NULL) — base de la idempotencia de escritura.
-  \item \texttt{@Version Long version} en \texttt{WorkoutJpaEntity} — control de concurrencia optimista.
-  \item Cascadas en \texttt{workouts → workout\_exercises → workout\_sets} para eliminación atómica.
-  \item Conversión de columnas \texttt{NUMERIC} a \texttt{DOUBLE PRECISION} para que validate pase contra los campos \texttt{double} de Hibernate.
-\end{itemize}
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Versión} & \textbf{Contenido} \\
+\midrule
+V1 & Esquema inicial: \texttt{users}, \texttt{exercises}, \texttt{workouts}, \texttt{workout\_exercises}, \texttt{workout\_sets}, \texttt{training\_metrics}. \\
+V2 & Catálogo de rutinas y días. \\
+V3 & Columnas \texttt{name\_es} para i18n del catálogo. \\
+V4 & Traducciones de catálogo (cargas iniciales). \\
+V5 & \texttt{client\_request\_id} y \texttt{version} en \texttt{workouts}; índice único parcial. \\
+V6 & Convierte \texttt{NUMERIC(p,s)} a \texttt{DOUBLE PRECISION} en \texttt{training\_metrics} y \texttt{workout\_sets} para que la entidad JPA \texttt{double} valide. \\
+\bottomrule
+\end{tabularx}
+\caption{Resumen de migraciones Flyway aplicadas.}
+\end{table}
+
+\paragraph{Caso especial — baseline.} En despliegues anteriores el backend corrió con \texttt{ddl-auto=update}, por lo que Hibernate construyó el esquema bypaseando Flyway. Al añadir el módulo \texttt{spring-boot-flyway} de Spring Boot 4 (necesario porque la autoconfiguración se separó del paquete principal) y arrancar, Flyway detectó un esquema poblado sin tabla \texttt{flyway\_schema\_history}. La resolución documentada es adoptar el esquema existente como baseline V4 mediante:
+
+\begin{lstlisting}[caption={Recetas de baseline para adoptar un esquema construido por Hibernate.}]
+SPRING_FLYWAY_BASELINE_ON_MIGRATE=true
+SPRING_FLYWAY_BASELINE_VERSION=4
+SPRING_FLYWAY_BASELINE_DESCRIPTION=adopt-hibernate-built-schema-as-V4
+\end{lstlisting}
+
+V5 y V6 se aplican encima sin pérdida de datos.
+
+\subsection{Endpoints REST}
+
+\subsubsection{Resumen}
+
+\begin{longtable}{lp{0.42\textwidth}p{0.36\textwidth}}
+\toprule
+\textbf{Método} & \textbf{Ruta} & \textbf{Notas} \\
+\midrule
+\endhead
+POST   & \http{/auth/register}        & Crea usuario, devuelve par de tokens. \\
+POST   & \http{/auth/login}           & Email + password. Rate-limited por IP. \\
+POST   & \http{/auth/refresh}         & Rota ambos tokens; revoca el JTI anterior. \\
+POST   & \http{/auth/logout}          & Revoca el refresh token. \\
+POST   & \http{/auth/google}          & Verifica ID token de Google, emite JWT propio. \\
+GET    & \http{/auth/me}              & Perfil autenticado. \\
+GET    & \http{/.well-known/jwks.json}& Clave pública para verificadores externos. \\
+GET    & \http{/workouts}             & Sin params: \texttt{\{items\}}. Con \texttt{?page=\&size=}: \texttt{\{items, page, size, total, has\_more\}}. \\
+POST   & \http{/workouts}             & Acepta \texttt{client\_request\_id} opcional; idempotente. \\
+GET    & \http{/workouts/\{id\}}      & Detalle. \\
+PUT    & \http{/workouts/\{id\}}      & \texttt{If-Match: <version>}. 409 si está stale. \\
+DELETE & \http{/workouts/\{id\}}      & Hard delete con cascada a sets. \\
+GET    & \http{/exercises}            & Catálogo, i18n por \texttt{Accept-Language}. \\
+POST   & \http{/exercises}            & Ejercicio custom del usuario. \\
+GET    & \http{/exercises/\{id\}/last-set} & Última serie registrada (autopopulado del cliente). \\
+GET    & \http{/fatigue/summary}      & Llama al compute engine; cachea por usuario/día. \\
+GET    & \http{/fatigue/weekly}       & Volumen semanal por grupo muscular (12 grupos). \\
+GET    & \http{/routines}             & Catálogo, opcional \texttt{?level=}. \\
+GET    & \http{/routines/\{id\}}      & Detalle con días/ejercicios. \\
+\bottomrule
+\caption{Endpoints REST.}\\
+\end{longtable}
+
+\subsubsection{Ejemplo: \texttt{POST /workouts} con idempotencia}
+
+\begin{lstlisting}[language=bash,caption={Request idempotente con \texttt{client\_request\_id}.}]
+POST /workouts
+Authorization: Bearer <jwt>
+Content-Type: application/json
+X-Request-Id: 4e2b1d4f-...
+
+{
+  "name": "Push Day",
+  "date": "2026-05-12T18:00:00Z",
+  "duration_seconds": 3600,
+  "client_request_id": "c5a30b7e-1d4f-4d7a-9b1f-2a2c3a8d9e10",
+  "notes": null,
+  "exercises": [
+    {
+      "exercise_id": "11111111-1111-1111-1111-111111111111",
+      "order": 0,
+      "sets": [
+        {"weight": 60.0, "reps": 8, "rpe": 7.5, "order": 0},
+        {"weight": 65.0, "reps": 5, "rpe": 8.5, "order": 1}
+      ]
+    }
+  ]
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash,caption={Respuesta 201 (primera vez) o 200 (retransmisión con la misma clave).}]
+HTTP/1.1 201 Created
+X-Request-Id: 4e2b1d4f-...
+Content-Type: application/json
+
+{
+  "id": "f980dd08-...-b12d",
+  "name": "Push Day",
+  "date": "2026-05-12T18:00:00Z",
+  "duration_seconds": 3600,
+  "notes": null,
+  "client_request_id": "c5a30b7e-...-9e10",
+  "version": 0,
+  "exercises": [ ... ]
+}
+\end{lstlisting}
+
+\subsubsection{Ejemplo: \texttt{PUT /workouts/\{id\}} con If-Match}
+
+\begin{lstlisting}[caption={Update condicional. El servidor compara \texttt{If-Match} con la \texttt{version} actual.}]
+PUT /workouts/f980dd08-...-b12d
+Authorization: Bearer <jwt>
+If-Match: 1
+
+{ "name": "Push Day (corregido)", "notes": "Mejor postura" }
+\end{lstlisting}
+
+\paragraph{Errores posibles.}
+\texttt{200 OK} con \texttt{version} incrementada;
+\texttt{404} si el workout no es del usuario;
+\texttt{409 Conflict} con cuerpo \verb|{"error": "<localized>"}| si \texttt{If-Match} no coincide.
+
+\subsubsection{Formato de errores}
+
+Todos los errores siguen el mismo contrato:
+
+\begin{lstlisting}
+{ "error": "Workout has been modified by another session ... " }
+\end{lstlisting}
+
+Para validaciones de campos, el handler agrega \texttt{details}:
+
+\begin{lstlisting}
+{
+  "error": "Validation failed",
+  "details": ["email: must be a well-formed email address",
+              "password: size must be between 8 and 255"]
+}
+\end{lstlisting}
 
 \subsection{Seguridad}
 
+\subsubsection{JWT RS256}
+
+Los tokens se firman con RSA 2048 bits. El par de claves se carga desde variables de entorno (\texttt{JWT\_PRIVATE\_KEY}, \texttt{JWT\_PUBLIC\_KEY}) en formato PKCS8/X.509 base64. No existe ningún fallback en \texttt{application.yml}; si las variables faltan, el bean \cls{JwtTokenProvider} falla en el arranque.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lp{0.5\textwidth}}
+\toprule
+\textbf{Claim} & \textbf{Significado} \\
+\midrule
+\texttt{sub}  & UUID del usuario. Lo escribe \cls{RbacFilter} en el \texttt{Authentication.name}. \\
+\texttt{iss}  & \texttt{strengthlabs} \\
+\texttt{iat}  & Fecha de emisión. \\
+\texttt{exp}  & Expiración (24\,h por defecto). \\
+\texttt{jti}  & UUID único usado como identificador para revocación. \\
+\texttt{role} & \texttt{USER} o \texttt{ADMIN}. \\
+\texttt{typ}  & \texttt{access} o \texttt{refresh}. \\
+\bottomrule
+\end{tabular}
+\caption{Claims del JWT.}
+\end{table}
+
+\subsubsection{Refresh tokens y revocación}
+
+El \texttt{POST /auth/refresh} consume el token actual y emite un par nuevo. El JTI anterior se añade a \cls{RevokedTokenStore} hasta su expiración natural. Este almacén es un \texttt{ConcurrentHashMap} en memoria — adecuado para el alcance académico, no para producción multi-instancia. La sección \textbf{Limitaciones} discute la migración a Redis.
+
+\subsubsection{Rate limiting}
+
+\cls{LoginRateLimitFilter} cuenta intentos por IP en una ventana deslizante (5 intentos / 15 min por defecto, configurable). Responde \texttt{429} con cabecera \texttt{Retry-After} cuando se excede. Aplica a \texttt{/auth/login}, \texttt{/auth/register}, \texttt{/auth/refresh}.
+
+\subsubsection{Cabeceras y CORS}
+
+\cls{SecurityConfig} configura:
 \begin{itemize}[leftmargin=*]
-  \item Tokens JWT firmados con RSA (RS256). Clave privada y pública vienen de variables de entorno (\texttt{JWT\_PRIVATE\_KEY}, \texttt{JWT\_PUBLIC\_KEY}) o de los perfiles \texttt{dev}/\texttt{test} que contienen llaves desechables claramente marcadas. \texttt{application.yml} no expone ningún fallback de clave.
-  \item Refresh tokens rotatorios. Cada \texttt{POST /auth/refresh} revoca el JTI anterior y emite uno nuevo. \texttt{RevokedTokenStore} mantiene una lista negra en memoria (suficiente para alcance académico; se migraría a Redis en producción).
-  \item Rate limiting per-IP en endpoints de auth (5 intentos / 15 min en \texttt{LoginRateLimitFilter}).
-  \item Headers de seguridad: \texttt{Content-Type Options nosniff}, \texttt{X-Frame-Options deny}, \texttt{Referrer-Policy no-referrer}, HSTS (condicional al perfil).
+  \item \texttt{Content-Type-Options: nosniff}
+  \item \texttt{X-Frame-Options: deny}
+  \item \texttt{Referrer-Policy: no-referrer}
+  \item HSTS condicional (\texttt{security.hsts.enabled}) con \texttt{includeSubDomains} y 1 año.
   \item CORS configurable vía \texttt{security.cors.allowed-origins} (por defecto \texttt{localhost:*} y \texttt{10.0.2.2:*}).
 \end{itemize}
 
 \subsection{Idempotencia y concurrencia}
 
-POST \texttt{/workouts} acepta \texttt{client\_request\_id}. El controlador comprueba si ya existe un workout con \texttt{(user\_id, client\_request\_id)} y, si sí, devuelve la misma entidad con \texttt{200 OK} en vez de crear duplicados. El índice único en Postgres es la red de seguridad por si dos requests racean.
+\subsubsection{Idempotencia de POST /workouts}
 
-PUT \texttt{/workouts/\{id\}} acepta el header \texttt{If-Match: <version>}. Si el valor no coincide con la \texttt{version} actual, el endpoint devuelve \texttt{409 Conflict} con mensaje localizado. Sin el header se sigue confiando en \texttt{@Version} para detectar colisiones entre transacciones simultáneas.
+Cuando el cliente envía \texttt{client\_request\_id}, el controlador hace dos chequeos en orden:
 
-El cache diario de fatiga (\texttt{training\_metrics}) usa doble verificación: \texttt{persistMetrics} comprueba existencia antes de insertar y captura \texttt{DataIntegrityViolationException} para tolerar la carrera entre dos requests concurrentes del mismo usuario en el mismo día.
+\begin{enumerate}[leftmargin=*]
+  \item Consulta \texttt{findByUserIdAndClientRequestId}. Si existe, devuelve esa entidad con \texttt{200 OK}.
+  \item Si no, intenta insertar. El índice único parcial \texttt{(user\_id, client\_request\_id) WHERE client\_request\_id IS NOT NULL} es la red de seguridad: ante dos requests racing, sólo uno tendrá éxito y el otro recibe \texttt{DataIntegrityViolationException}, mapeada a \texttt{409}.
+\end{enumerate}
+
+\subsubsection{Optimistic locking de PUT /workouts/\{id\}}
+
+\cls{WorkoutJpaEntity} lleva \texttt{@Version Long version}. Hibernate añade automáticamente la cláusula \texttt{WHERE version = ?} y compara filas afectadas en cada UPDATE. Además, el controlador inspecciona la cabecera \texttt{If-Match}; si el cliente envía una versión obsoleta, devuelve \texttt{409} de inmediato sin tocar la BD.
+
+Importante: el método PUT usa \texttt{saveAndFlush} (no \texttt{save}) porque \texttt{@Version} se incrementa al \textit{flush}. Si la respuesta serializa antes del flush, el cliente recibe la versión vieja y queda atascado en \texttt{409} para siempre. Esto se detectó durante el primer despliegue en producción y está cubierto por una aserción explícita en \cls{WorkoutControllerIT.putRejectsStaleVersion}.
+
+\subsubsection{Cache diario de fatiga}
+
+\cls{GetFatigueSummaryUseCase.persistMetrics} verifica existencia y captura \texttt{DataIntegrityViolationException} para tolerar dos requests concurrentes del mismo usuario en el mismo día. Sin esto, el unique constraint \texttt{(user\_id, metric\_date)} levantaba excepción ruidosa en logs.
 
 \subsection{Observabilidad}
 
-\texttt{CorrelationIdFilter} (con \texttt{HIGHEST\_PRECEDENCE}) lee \texttt{X-Request-Id} entrante o genera un UUID si falta. Lo escribe en el MDC de SLF4J y lo devuelve en la respuesta. El cliente Flutter envía un \texttt{X-Request-Id} por request, de manera que tanto el log del servidor como las trazas locales puedan correlacionarse.
-
-% =============================================================================
-\section{Arquitectura del frontend}
-% =============================================================================
-
-\subsection{Capas}
-
-Se sigue una estructura feature-first con tres capas por feature (\texttt{data}, \texttt{domain}, \texttt{presentation}). Los servicios compartidos están en \texttt{core/}:
-
-\begin{description}[leftmargin=2cm,style=nextline]
-  \item[\texttt{core/database}] Drift schema (\texttt{app\_database.dart}) y código generado.
-  \item[\texttt{core/network}] Cliente Dio con tres interceptores en cadena.
-  \item[\texttt{core/sync}] \texttt{SyncManager} que drena la cola de mutaciones pendientes.
-  \item[\texttt{core/connectivity}] \texttt{ConnectivityCubit} que expone online/offline.
-  \item[\texttt{core/storage}] Acceso a \texttt{flutter\_secure\_storage} para tokens.
-\end{description}
-
-\subsection{Estrategia offline-first}
-
-El principio rector: \emph{el cliente nunca depende del servidor para confirmar una mutación}. La sesión es válida si hay token; los datos vienen del Drift local; el servidor es un \emph{write-behind}.
-
-\begin{enumerate}[leftmargin=*]
-  \item El usuario crea un workout en la app.
-  \item \texttt{OfflineWorkoutService.createWorkout} ejecuta dentro de una transacción Drift:
-    \begin{itemize}[leftmargin=*]
-      \item Inserta la fila en \texttt{workouts} con \texttt{syncState = pendingCreate} y un \texttt{client\_request\_id} generado con UUID v4.
-      \item Encola una operación \texttt{createWorkout} en \texttt{sync\_queue} con el payload completo.
-    \end{itemize}
-  \item El método retorna inmediatamente con un \texttt{LocalWorkoutHandle}.
-  \item Al detectar conectividad (\texttt{ConnectivityCubit} pasa a online) o al volver la app a foreground, \texttt{SyncManager.processPending()} drena la cola en orden FIFO.
-  \item Para cada operación se llama al endpoint correspondiente. Al éxito, la fila local pasa a \texttt{synced} con \texttt{serverId} y \texttt{version} del backend, y la entrada en \texttt{sync\_queue} se elimina.
-  \item Ante un fallo transitorio (red, 5xx en \{502, 503, 504\}), \texttt{SyncManager} calcula un nuevo \texttt{nextRetryAt} usando backoff exponencial con jitter ($\pm$25\%) y lo persiste. El intento se reanuda en cuanto el reloj lo alcance.
-  \item Ante un fallo permanente (4xx que no sea 408/409/425/429) la operación se marca como abandonada para que la UI la exponga al usuario.
-\end{enumerate}
-
-\paragraph{Diagrama de estados de un workout local.}
-
-\begin{center}
-\begin{tikzpicture}[
-  state/.style={rectangle,draw,rounded corners,minimum height=0.9cm,minimum width=2.2cm,align=center,font=\small},
-  arrow/.style={-Latex,thick,font=\footnotesize},
-]
-  \node[state] (pc)  {pendingCreate};
-  \node[state,right=3.4cm of pc] (sync) {synced};
-  \node[state,below=1.4cm of sync] (pu) {pendingUpdate};
-  \node[state,below=1.4cm of pc] (pd) {pendingDelete};
-  \node[state,right=3.4cm of sync] (gone) {(borrado)};
-
-  \draw[arrow] (pc) -- node[above]{POST /workouts ok} (sync);
-  \draw[arrow] (sync) -- node[right]{user edita} (pu);
-  \draw[arrow] (pu.west) to[bend left=25] node[left]{PUT ok}  (sync.south west);
-  \draw[arrow] (sync) -- node[below right]{user borra} (pd);
-  \draw[arrow] (pd) -- node[below]{DELETE ok} (gone);
-  \draw[arrow,dashed] (pc) to[bend right=20] node[left]{cancelado\\(nunca subió)} (pd);
-\end{tikzpicture}
-\end{center}
-
-\subsection{Idempotencia en reintentos}
-
-Cuando el primer POST falla por red, \texttt{SyncManager} no toca el payload almacenado. El siguiente intento reusa el mismo \texttt{client\_request\_id}. El backend reconoce el id y, si la fila ya existió porque la primera respuesta sí llegó al servidor antes de cortarse, devuelve la entidad existente sin crear duplicados.
-
-\subsection{Resolución de conflictos}
-
-El alcance académico cubre conflictos de baja probabilidad (un solo usuario, en un dispositivo a la vez). Para los pocos casos de uso multi-dispositivo, se aplica \emph{last-write-wins} apoyado en el \texttt{version} del servidor:
+\cls{CorrelationIdFilter} (\texttt{HIGHEST\_PRECEDENCE}) extrae o genera \texttt{X-Request-Id}, lo introduce en el MDC (\texttt{requestId}) y lo echoes en la respuesta. SLF4J/Logback están configurados para incluir \texttt{[requestId]} en el formato. Esto permite:
 
 \begin{itemize}[leftmargin=*]
-  \item Antes de sincronizar un update, el cliente envía \texttt{If-Match: <version>}.
-  \item Si el servidor responde 409, el cliente trae la versión actualizada y descarta la copia local con notificación al usuario.
+  \item Cruzar logs de servidor con el id que el cliente Dio inyecta en cada request.
+  \item Trazar reintentos del SyncManager: como reintenta con el mismo \texttt{client\_request\_id}, basta filtrar por ese campo en la BD para ver toda la historia.
 \end{itemize}
+
+% =============================================================================
+\section{Compute Engine: Python FastAPI}
+% =============================================================================
+
+\subsection{Endpoints}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Método} & \textbf{Ruta} & \textbf{Descripción} \\
+\midrule
+POST & \http{/compute/fatigue} & Recibe lista de sesiones \texttt{\{user\_id, date, duration\_minutes, rpe\}}; devuelve ATL/CTL/TSB, monotony, strain, ramp\_rate, readiness y serie ATL. \\
+POST & \http{/compute/risk}    & Recibe ACWR, TSB, ramp\_rate, monotony; devuelve injury\_risk, overtraining\_risk, composite y \texttt{risk\_level} (low/moderate/high/critical), plus recomendaciones. \\
+POST & \http{/plan}            & (Out of scope para el cliente actual.) \\
+\bottomrule
+\end{tabularx}
+\caption{Superficie del microservicio Python.}
+\end{table}
+
+\subsection{Modelo de fatiga}
+
+ATL y CTL se calculan con un promedio exponencial:
+
+\[
+ATL_t = \alpha_a \cdot load_t + (1 - \alpha_a) \cdot ATL_{t-1}, \quad \alpha_a = \frac{2}{7+1}
+\]
+\[
+CTL_t = \alpha_c \cdot load_t + (1 - \alpha_c) \cdot CTL_{t-1}, \quad \alpha_c = \frac{2}{42+1}
+\]
+\[
+TSB_t = CTL_t - ATL_t, \quad ACWR_t = ATL_t / \max(CTL_t, \epsilon)
+\]
+
+El \texttt{load} de cada sesión se aproxima como \texttt{duration\_minutes} $\times$ RPE (TRIMP simplificado). La serie ATL se devuelve completa para que el cliente pueda graficar tendencia sin volver a calcularla.
+
+\subsection{Modelo de riesgo}
+
+El servicio combina ACWR, TSB y ramp\_rate con pesos para producir un \texttt{composite\_risk\_score} y una clasificación discreta. Adicionalmente emite \texttt{risk\_flags} (códigos como \texttt{HIGH\_ACWR}, \texttt{DEEP\_FATIGUE}, \texttt{ELEVATED\_RAMP\_RATE}) que el backend traduce a strings localizados mediante \texttt{messages\_en.properties} / \texttt{messages\_es.properties}.
+
+\subsection{Falla controlada}
+
+\cls{PythonComputeAdapter} llama por HTTP. El \texttt{RestTemplate} está construido con \texttt{connectTimeout=2s} y \texttt{readTimeout=5s}. Cualquier excepción se atrapa y se devuelve \cls{FatigueComputeResult.unavailable()} con \texttt{computeAvailable=false}. El cliente Flutter conoce ese flag (\cls{FatigueSummary.hasComputeData}) y degrada la UI: muestra el volumen semanal calculado en backend pero oculta los gauges dependientes del compute.
+
+% =============================================================================
+\section{Frontend: Flutter}
+% =============================================================================
+
+\subsection{Estructura feature-first}
+
+\begin{lstlisting}[caption={Estructura abreviada del módulo \texttt{lib/}.}]
+lib/
+|-- app.dart
+|-- main.dart
+|-- core/
+|   |-- connectivity/        ConnectivityCubit
+|   |-- constants/           api_constants.dart (baseUrl: api.blocsa.com)
+|   |-- database/            Drift schema + app_database.g.dart
+|   |-- demo/                DemoMode + mocks
+|   |-- network/             DioClient + interceptores
+|   |-- router/              GoRouter + guards
+|   |-- storage/             TokenStorage (flutter_secure_storage)
+|   '-- sync/                SyncManager
+|-- features/
+|   |-- auth/
+|   |   |-- data/            AuthRepository, UserCache, SessionRestoreResult
+|   |   '-- presentation/    AuthCubit + LoginPage/RegisterPage
+|   |-- workouts/
+|   |   |-- data/            WorkoutRepository, OfflineWorkoutService,
+|   |   |                    ActiveWorkoutDraftStore
+|   |   |-- domain/          Workout, Exercise, WorkoutSet, MuscleGroup
+|   |   '-- presentation/    Cubits, pages
+|   |-- fatigue/             repository + parser + dashboard
+|   |-- routines/
+|   |-- plan/
+|   |-- export/              generacion local xlsx/csv
+|   |-- settings/
+|   '-- onboarding/
+|-- shared/
+|   |-- widgets/             OfflineBanner, etc.
+|   '-- utils/
+'-- l10n/                    ARB + generated
+\end{lstlisting}
+
+\subsection{Estado: Bloc / Cubit}
+
+Cada feature relevante expone uno o más Cubits:
+\cls{AuthCubit}, \cls{WorkoutsCubit}, \cls{ActiveWorkoutCubit}, \cls{FatigueCubit}, \cls{RoutinesCubit}, \cls{SettingsCubit}, \cls{ConnectivityCubit}. \texttt{setState} se permite únicamente para estado UI puramente local (visibilidad de un input, expansión de un menú).
 
 \subsection{Capa de red}
 
-\texttt{DioClient} encadena tres interceptores en orden estricto:
+\cls{DioClient} encadena tres interceptores en el orden:
 
 \begin{enumerate}[leftmargin=*]
-  \item \texttt{CorrelationIdInterceptor}: añade un UUID v4 como \texttt{X-Request-Id}, salvo que el llamante ya haya supplied uno. Permite que el log del servidor referencie cada acción de la app.
-  \item \texttt{\_AuthInterceptor}: detecta tokens expirados antes de mandar el request y refresca proactivamente. Coalesce los refreshes concurrentes con un \texttt{Completer} compartido. Si llega un 401 lo retira una vez.
-  \item \texttt{RetryInterceptor}: sólo para \texttt{GET}. Reintenta sobre \texttt{connectionError}, \texttt{timeout}, 502, 503, 504 con backoff exponencial y jitter. Las mutaciones \emph{nunca} se reintentan a este nivel — viven en \texttt{SyncQueue}, que ya garantiza idempotencia.
+  \item \cls{CorrelationIdInterceptor}: agrega \texttt{X-Request-Id} (UUID v4) salvo que el llamante ya haya inyectado uno propio. El backend lo refleja en la respuesta y en cada línea de log.
+  \item \cls{\_AuthInterceptor}:
+    \begin{itemize}[leftmargin=*]
+      \item Antes de cada request comprueba la expiración del access token (parseando el \texttt{exp} sin firmar otra vez) y refresca proactivamente.
+      \item Si llega \texttt{401}, refresca y reintenta una sola vez.
+      \item Refreshes concurrentes se colapsan mediante un \texttt{Completer<bool>} compartido para evitar tormenta de refreshes en paralelo.
+    \end{itemize}
+  \item \cls{RetryInterceptor}: reintenta sólo \texttt{GET} en errores transitorios (\texttt{connectionError}, \texttt{timeout}, 502, 503, 504) con backoff exponencial. POST/PUT/DELETE \textbf{nunca} se reintentan a este nivel — viajan por la cola de sync, que sí garantiza idempotencia.
 \end{enumerate}
 
-\subsection{Recuperación de sesión activa}
+\subsection{Base de datos local: Drift}
 
-\texttt{ActiveWorkoutCubit} serializa cada emit a \texttt{shared\_preferences} a través de \texttt{ActiveWorkoutDraftStore}. Si el SO mata la app a mitad de un entrenamiento, el siguiente arranque ofrece \texttt{restoreDraft()} para recuperar el estado intacto.
-
-Los saves se serializan dentro de un \texttt{Future} chain (\texttt{\_saveQueue}) para evitar que dos saves concurrentes produzcan que el más antiguo sobreescriba al más reciente.
-
-\subsection{Tolerancia a fallos de \texttt{/auth/me}}
-
-\texttt{AuthRepository.restoreSession()} expone un resultado tipado:
-
-\begin{itemize}[leftmargin=*]
-  \item \texttt{SessionMissing}: no hay tokens, ir al login.
-  \item \texttt{SessionRestored(user)}: el servidor confirmó al usuario.
-  \item \texttt{SessionRestored(user, fromCache: true)}: hay red caída pero teníamos un \texttt{UserCache} válido, el usuario sigue dentro de la app con datos del último sync.
-  \item \texttt{SessionExpired}: el servidor respondió 401, tokens limpiados.
-  \item \texttt{SessionOfflineNoCache}: primera ejecución sin red, no hay cache, se manda al login.
-\end{itemize}
-
-% =============================================================================
-\section{Verificación y pruebas}
-% =============================================================================
-
-\subsection{Frontend}
-
-Tests automatizados con \texttt{flutter\_test} + \texttt{bloc\_test} + \texttt{mocktail}:
-
-\begin{itemize}[leftmargin=*]
-  \item Parsing de \texttt{Workout}, \texttt{Exercise} y \texttt{WorkoutSet} contra payloads reales del backend (snake\_case, UTC).
-  \item \texttt{parseFatigueSummary} tolera ambos formatos históricos de \texttt{risk\_flags} (List\textless String\textgreater\ y List\textless Map\textgreater) sin romperse.
-  \item \texttt{AuthRepository.restoreSession} para los cinco resultados posibles incluyendo offline-con-cache.
-  \item \texttt{ActiveWorkoutCubit} persiste y restaura draft incluso bajo emits rápidos en serie.
-  \item \texttt{CorrelationIdInterceptor} no pisa ids existentes y genera ids únicos.
-  \item \texttt{RetryInterceptor} reintenta sólo \texttt{GET} en errores transitorios, no toca mutaciones, abandona tras maxRetries.
-  \item Drift schema: inserciones, restricciones únicas, watch streams.
-  \item \texttt{SyncManager}: FIFO, backoff, abandono ante 4xx permanentes.
-  \item \texttt{OfflineWorkoutService}: ciclo completo create-offline → process → synced, incluyendo retry con mismo \texttt{client\_request\_id}.
-\end{itemize}
-
-Ejecutar con \texttt{flutter test --concurrency=1}: la concurrencia entre isolates produce flakiness en los tests Drift por compartir la librería SQLite en memoria.
-
-\subsection{Backend}
-
-Tests con JUnit 5 + Testcontainers (Postgres 16). Lo relevante:
-
-\begin{itemize}[leftmargin=*]
-  \item \texttt{AuthControllerIT}: registro, login, refresh, Google sign-in, JWT validation.
-  \item \texttt{WorkoutControllerIT}:
-    \begin{itemize}
-      \item Idempotencia: dos POST con el mismo \texttt{client\_request\_id} devuelven la misma fila.
-      \item Optimistic locking: \texttt{If-Match} con versión obsoleta devuelve 409.
-      \item Paginación: \texttt{?page=\&size=} devuelve \{items, page, size, total, has\_more\}.
-      \item Aislamiento por usuario en lecturas y borrados.
-    \end{itemize}
-  \item \texttt{FatigueControllerIT}: caching y fallback ante compute engine caído.
-  \item \texttt{RateLimitIT}: respuestas 429 con \texttt{Retry-After}.
-  \item \texttt{JwtTokenProviderTest}, \texttt{RevokedTokenStoreTest}: emisión, parsing, revocación.
-\end{itemize}
-
-Ejecutar con \texttt{JAVA\_HOME=/usr/lib/jvm/java-21-openjdk ./mvnw test}.
-
-% =============================================================================
-\section{Despliegue y operación}
-% =============================================================================
-
-\paragraph{Local development.}
-
-\begin{lstlisting}[language=bash]
-# 1. Postgres + Redis
-docker compose -f StrengthLabsBackend/docker/docker-compose.yml up -d
-
-# 2. Microservicio de fatiga
-cd StrengthLabsBackend/recursos
-uvicorn api.main:app --host 0.0.0.0 --port 8001 &
-
-# 3. Backend
-JAVA_HOME=/usr/lib/jvm/java-21-openjdk ./mvnw spring-boot:run
-
-# 4. App Flutter
-cd ../../strengthlabs_beta
-flutter run
+\begin{lstlisting}[caption={Esquema Drift (Dart, fragmento).}]
+@DataClassName('WorkoutRow')
+class WorkoutsTable extends Table {
+  TextColumn   get id              => text()();
+  TextColumn   get serverId        => text().nullable()();
+  TextColumn   get clientRequestId => text().unique()();
+  TextColumn   get name            => text()();
+  DateTimeColumn get date          => dateTime()();
+  IntColumn    get durationSeconds => integer()();
+  TextColumn   get notes           => text().nullable()();
+  IntColumn    get version         => integer().withDefault(const Constant(0))();
+  TextColumn   get exercisesJson   => text().withDefault(const Constant('[]'))();
+  TextColumn   get syncState       =>
+      text().withDefault(const Constant('synced'))();
+  DateTimeColumn get localUpdatedAt  => dateTime()();
+  DateTimeColumn get serverUpdatedAt => dateTime().nullable()();
+  @override Set<Column> get primaryKey => {id};
+}
 \end{lstlisting}
 
-\paragraph{Variables de entorno en producción.}
+El esquema incluye además \texttt{SyncQueueTable} (cola de operaciones con \texttt{attempts}, \texttt{lastError}, \texttt{nextRetryAt}) y \texttt{CachedUserTable} (un único registro con el usuario autenticado para el flujo offline de auth).
 
-\begin{tabularx}{\textwidth}{lX}
-  \toprule
-  \textbf{Variable} & \textbf{Uso} \\
-  \midrule
-  \texttt{DB\_PASSWORD}        & Password de la base \texttt{strengthlabs}. \\
-  \texttt{JWT\_PRIVATE\_KEY}   & Clave RSA privada (PKCS8 base64). \\
-  \texttt{JWT\_PUBLIC\_KEY}    & Clave RSA pública (X.509 base64). \\
-  \texttt{GOOGLE\_CLIENT\_ID}  & Client ID para verificación de ID tokens. \\
-  \texttt{COMPUTE\_ENGINE\_URL}& URL base del servicio Python. \\
-  \texttt{CORS\_ALLOWED\_ORIGINS} & CSV de origins permitidos. \\
-  \bottomrule
-\end{tabularx}
+\subsection{Sesión activa persistente}
+
+\cls{ActiveWorkoutCubit} serializa cada \texttt{emit} a \texttt{shared\_preferences} vía \cls{ActiveWorkoutDraftStore}. Si el SO mata la app a mitad de sesión, el siguiente arranque ofrece recuperar el draft. Para evitar que escrituras rápidas en serie produzcan que un save antiguo sobreescriba al más reciente, los saves se serializan a través de un único \texttt{Future} chain (\texttt{\_saveQueue}).
+
+\subsection{Internacionalización}
+
+ARB + \texttt{flutter\_localizations}. Dos locales: \texttt{en} y \texttt{es}. El cliente envía \texttt{Accept-Language} a través de \cls{DioClient.languageCode}, y el backend resuelve mensajes y nombres de ejercicios mediante \texttt{MessageSource} + columnas \texttt{name\_es} del catálogo.
 
 % =============================================================================
-\section{Limitaciones conocidas}
+\section{Estrategia offline-first}
+% =============================================================================
+
+\subsection{Principio rector}
+
+\textit{El cliente nunca depende del servidor para confirmar una mutación.} La sesión es válida si hay token; los datos vienen de Drift; el servidor es un \textit{write-behind} alimentado por la cola.
+
+\subsection{Máquina de estados del workout local}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  state/.style={rectangle,draw,rounded corners,minimum height=0.9cm,minimum width=2.3cm,align=center,font=\small},
+  arrow/.style={-Latex,thick,font=\scriptsize},
+]
+  \node[state,fill=blue!10] (pc)   {pendingCreate};
+  \node[state,fill=green!12,right=3.4cm of pc] (sync) {synced};
+  \node[state,fill=yellow!15,below=1.4cm of sync] (pu) {pendingUpdate};
+  \node[state,fill=red!10,below=1.4cm of pc]    (pd) {pendingDelete};
+  \node[state,fill=gray!10,right=3.4cm of sync] (gone) {(eliminado)};
+
+  \draw[arrow] (pc) -- node[above]{POST OK} (sync);
+  \draw[arrow] (sync) -- node[right]{editar} (pu);
+  \draw[arrow] (pu.west) to[bend left=25] node[left]{PUT OK} (sync.south west);
+  \draw[arrow] (sync) -- node[below right,yshift=2pt]{borrar} (pd);
+  \draw[arrow] (pd) -- node[below]{DELETE OK} (gone);
+  \draw[arrow,dashed] (pc) to[bend right=20] node[left]{cancelar} (pd);
+\end{tikzpicture}
+\caption{Máquina de estados del campo \texttt{syncState} de una fila de \texttt{workouts}.}
+\end{figure}
+
+\subsection{Flujo end-to-end: crear workout sin red}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  actor/.style={font=\small\bfseries},
+  msg/.style={-Latex,thick,font=\scriptsize},
+  msgr/.style={Latex-,thick,font=\scriptsize},
+  every text node part/.style={align=left},
+]
+  \node[actor] (u)   at (0,0)    {Usuario};
+  \node[actor] (ui)  at (3,0)    {UI / Cubit};
+  \node[actor] (svc) at (6.5,0)  {OfflineService};
+  \node[actor] (db)  at (10,0)   {Drift};
+  \node[actor] (sm)  at (13.5,0) {SyncManager};
+  \node[actor] (api) at (17,0)   {Backend};
+
+  \foreach \x in {0,3,6.5,10,13.5,17}
+    \draw[dashed,gray] (\x,-0.2) -- (\x,-7.5);
+
+  \draw[msg] (0,-0.7) -- node[above]{Tap Finish} (3,-0.7);
+  \draw[msg] (3,-1.3) -- node[above]{createWorkout(draft)} (6.5,-1.3);
+  \draw[msg] (6.5,-1.9) -- node[above]{INSERT pendingCreate} (10,-1.9);
+  \draw[msgr] (6.5,-2.5) -- node[below]{ok} (10,-2.5);
+  \draw[msg] (6.5,-3.1) -- node[above]{enqueue(createWorkout)} (13.5,-3.1);
+  \draw[msgr] (3,-3.7) -- node[below]{LocalWorkoutHandle} (6.5,-3.7);
+  \draw[msg]  (0,-4.3) -- node[above]{(UI muestra workout)} (3,-4.3);
+  \draw[msg]  (13.5,-5.0) -- node[above]{POST /workouts \{client\_request\_id\}} (17,-5.0);
+  \draw[msgr] (13.5,-5.6) -- node[below]{201 \{id, version\}} (17,-5.6);
+  \draw[msg]  (13.5,-6.2) -- node[above]{UPDATE syncState=synced} (10,-6.2);
+\end{tikzpicture}
+\caption{Secuencia simplificada de \texttt{createWorkout} offline-first.}
+\end{figure}
+
+\subsection{Reintentos idempotentes}
+
+Cuando el primer POST falla por red, \cls{SyncManager} marca \texttt{attempts++}, calcula \texttt{nextRetryAt = now + backoff(attempts)} y guarda el mismo payload. La siguiente vuelta del bucle reusa el mismo \texttt{client\_request\_id}; si la primera transacción del servidor sí había completado y sólo la respuesta se perdió, el backend devuelve \texttt{200} con la entidad existente y la cola colapsa la operación.
+
+\subsection{Backoff}
+
+\[
+\text{delay}(n) = \min(\text{maxBackoff},\, \text{initialBackoff} \cdot 2^{\,n-1}) \cdot (1 + \mathcal{U}(-0.25,\,0.25))
+\]
+
+con \texttt{initialBackoff=1s} y \texttt{maxBackoff=1h} por defecto. El jitter del 25\% evita reintentos sincronizados tras una caída masiva.
+
+\subsection{Resolución de conflictos}
+
+El alcance académico cubre el caso típico (un usuario, un dispositivo). En multi-dispositivo se aplica \textit{last-write-wins} controlado por la \texttt{version} del servidor: si el PUT recibe \texttt{409}, el cliente refresca la fila desde el servidor y descarta la copia local con notificación al usuario.
+
+% =============================================================================
+\section{Flujos clave (secuencias)}
+% =============================================================================
+
+\subsection{Registro y obtención de tokens}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  actor/.style={font=\small\bfseries},
+  msg/.style={-Latex,thick,font=\scriptsize},
+  msgr/.style={Latex-,thick,font=\scriptsize},
+]
+  \node[actor] (ui)  at (0,0)    {Flutter};
+  \node[actor] (api) at (5,0)    {Backend};
+  \node[actor] (db)  at (10,0)   {Postgres};
+  \node[actor] (cache) at (14.5,0) {UserCache};
+
+  \foreach \x in {0,5,10,14.5} \draw[dashed,gray] (\x,-0.2) -- (\x,-6.0);
+
+  \draw[msg]  (0,-0.7) -- node[above]{POST /auth/register} (5,-0.7);
+  \draw[msg]  (5,-1.3) -- node[above]{INSERT user (bcrypt)} (10,-1.3);
+  \draw[msgr] (5,-1.9) -- node[below]{ok} (10,-1.9);
+  \draw[msgr] (0,-2.5) -- node[below]{200 \{access\_token, refresh\_token\}} (5,-2.5);
+  \draw[msg]  (0,-3.1) -- node[above]{GET /auth/me} (5,-3.1);
+  \draw[msgr] (0,-3.7) -- node[below]{200 \{id, name, email\}} (5,-3.7);
+  \draw[msg]  (0,-4.3) -- node[above]{save user} (14.5,-4.3);
+\end{tikzpicture}
+\caption{Registro y persistencia del usuario en cache local.}
+\end{figure}
+
+\subsection{Restauración de sesión}
+
+\cls{AuthRepository.restoreSession} devuelve un valor de tipo \cls{SessionRestoreResult}:
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Resultado} & \textbf{Cuándo} \\
+\midrule
+\cls{SessionMissing}        & No hay tokens almacenados. \\
+\cls{SessionRestored}       & \texttt{/auth/me} confirmó al usuario. Cache actualizado. \\
+\cls{SessionRestored(fromCache: true)} & La red falló pero había un \cls{UserCache} válido. \\
+\cls{SessionExpired}        & El servidor devolvió 401. Tokens y cache borrados. \\
+\cls{SessionOfflineNoCache} & Sin red y sin cache: arranque inicial sin internet. \\
+\bottomrule
+\end{tabularx}
+\caption{Variantes de \texttt{SessionRestoreResult}.}
+\end{table}
+
+\subsection{Cálculo de fatiga con compute engine caído}
+
+\begin{enumerate}[leftmargin=*]
+  \item Cliente: \texttt{GET /fatigue/summary}.
+  \item Backend: comprueba cache diaria; si existe, la devuelve.
+  \item Cache miss: llama al microservicio Python con timeout 5\,s.
+  \item Si el servicio responde, computa, persiste cache (con doble-check + catch de \texttt{DataIntegrityViolationException}) y devuelve.
+  \item Si falla, devuelve \texttt{FatigueComputeResult.unavailable()} con valores neutros y \texttt{compute\_available=false}; \textbf{no cachea} para permitir reintento más tarde.
+  \item Cliente: detecta \texttt{compute\_available=false} y oculta los gauges dependientes.
+\end{enumerate}
+
+% =============================================================================
+\section{Despliegue}
+% =============================================================================
+
+\subsection{Topología actual}
+
+\begin{itemize}[leftmargin=*]
+  \item Host único Debian/Ubuntu.
+  \item Postgres y Redis en systemd (\textit{native}, no contenedor).
+  \item \texttt{strengthlabs.service}: ejecuta el JAR Spring Boot en \texttt{:8080}.
+  \item \texttt{strengthlabs-compute.service}: uvicorn FastAPI en \texttt{:8001}.
+  \item \texttt{cloudflared.service}: \textit{named tunnel} que mapea \texttt{api.blocsa.com} a \texttt{localhost:8080}. Sobrevive reboots, no rota credenciales, ligado a la cuenta.
+\end{itemize}
+
+\subsection{Variables de entorno requeridas}
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Variable} & \textbf{Uso} \\
+\midrule
+\texttt{DB\_PASSWORD}         & Password del rol \texttt{stlabs}. \\
+\texttt{JWT\_PRIVATE\_KEY}    & PKCS8 base64 (sin headers). \\
+\texttt{JWT\_PUBLIC\_KEY}     & X.509 base64. \\
+\texttt{GOOGLE\_CLIENT\_ID}   & Para verificar ID tokens de Google. \\
+\texttt{COMPUTE\_ENGINE\_URL} & Típicamente \texttt{http://localhost:8001}. \\
+\texttt{CORS\_ALLOWED\_ORIGINS} & CSV de orígenes permitidos. \\
+\texttt{PORT}                 & Puerto de escucha del backend. En el despliegue actual es \texttt{8080}. \\
+\bottomrule
+\end{tabularx}
+\caption{Variables de entorno para producción.}
+\end{table}
+
+\subsection{Despliegue inicial sobre esquema previo}
+
+El procedimiento documentado en \texttt{SERVER\_DEPLOY.md} \S6 cubre el caso del primer despliegue cuando ya existía un esquema construido por Hibernate sin Flyway: se baseliza V4 y se dejan correr V5 y V6 encima. El runbook contiene además un script de \textit{smoke tests} (\S5) que verifica registro, idempotencia, paginación, optimistic locking y echo de \texttt{X-Request-Id}.
+
+\subsection{Configuración del cliente para producción}
+
+El default de \cls{ApiConstants.baseUrl} es \texttt{https://api.blocsa.com}, de modo que \texttt{flutter run} en un dispositivo físico funciona sin sobreescrituras. Para desarrollo local se pasa \texttt{--dart-define=API\_BASE\_URL=...}.
+
+% =============================================================================
+\section{Estrategia de pruebas}
+% =============================================================================
+
+\subsection{Frontend (Flutter)}
+
+\begin{itemize}[leftmargin=*]
+  \item Parsing snake\_case ($\rightarrow$ Workout/Exercise/WorkoutSet), forzando UTC para fechas.
+  \item \cls{FatigueResponseParser} defensivo: tolera \texttt{risk\_flags} como lista de strings o lista de mapas.
+  \item \cls{AuthRepository.restoreSession} para los cinco resultados (online/offline/expirado/etc.).
+  \item \cls{ActiveWorkoutCubit} con persistencia y recuperación, incluyendo emits en ráfaga.
+  \item \cls{CorrelationIdInterceptor}: no pisa ids ya provistos, genera únicos.
+  \item \cls{RetryInterceptor}: reintenta sólo GET en transitorios, abandona tras maxRetries.
+  \item Drift schema: inserciones, constraints únicas, watch streams.
+  \item \cls{SyncManager}: FIFO, backoff, abandono ante 4xx permanente.
+  \item \cls{OfflineWorkoutService} end-to-end: crear offline $\rightarrow$ drain $\rightarrow$ \texttt{synced}, incluyendo reintento con mismo \texttt{client\_request\_id}.
+\end{itemize}
+
+\textbf{Ejecución:} \texttt{flutter test --concurrency=1} (las isolates compartiendo SQLite en memoria producen flakiness).
+
+\subsection{Backend (JUnit 5 + Testcontainers)}
+
+\begin{itemize}[leftmargin=*]
+  \item \cls{AuthControllerIT}: registro, login, refresh, Google, logout.
+  \item \cls{WorkoutControllerIT}: aislamiento por usuario, idempotencia, paginación, optimistic locking, version echo en el body de PUT.
+  \item \cls{FatigueControllerIT}: caching y fallback ante compute caído.
+  \item \cls{RateLimitIT}: 429 + \texttt{Retry-After}.
+  \item \cls{JwtTokenProviderTest}, \cls{RevokedTokenStoreTest}, \cls{GetFatigueSummaryUseCaseTest}.
+\end{itemize}
+
+\textbf{Ejecución:} \texttt{JAVA\_HOME=/usr/lib/jvm/java-21-openjdk ./mvnw test}.
+
+% =============================================================================
+\section{Decisiones arquitectónicas (ADR)}
+% =============================================================================
+
+\subsection{ADR-001 — JWT RS256 en lugar de HS256}
+
+\textbf{Contexto.} Se necesita firmar tokens emitidos por el backend y validados por el mismo servicio (y, ocasionalmente, por terceros vía JWKS).
+
+\textbf{Decisión.} Usar RSA-256 (asimétrico). El backend firma con la clave privada; cualquier verificador externo descarga la pública en \texttt{/.well-known/jwks.json}.
+
+\textbf{Consecuencias.} Operacionalmente más caro que HMAC (claves más grandes, generación de pares). Beneficio: los verificadores externos no necesitan compartir secretos, y rotar claves no obliga a revocar todos los tokens.
+
+\subsection{ADR-002 — Offline-first con Drift en lugar de Hive}
+
+\textbf{Contexto.} El cliente debe poder crear y leer entrenamientos sin red, y reconciliar al volver online.
+
+\textbf{Decisión.} Drift (SQLite con codegen). Alternativas evaluadas: Hive, Isar.
+
+\textbf{Razones.}
+\begin{itemize}[leftmargin=*]
+  \item Hive está estancado desde 2023; v2 sin mantenimiento activo.
+  \item Isar v3 también detenido, v4 fue reescritura sin garantías.
+  \item Drift es el ORM dart/Flutter más activo, con migraciones, streams reactivos y SQL real.
+\end{itemize}
+
+\textbf{Consecuencias.} Codegen requerido (\texttt{build\_runner build}). El .g.dart se commitea para que CI no necesite ejecutar build\_runner. SQLite real implica disponer de \texttt{libsqlite3} en el dispositivo (provisto por \texttt{sqlite3\_flutter\_libs}).
+
+\subsection{ADR-003 — \texttt{client\_request\_id} en el body en lugar de cabecera \texttt{Idempotency-Key}}
+
+\textbf{Contexto.} Necesitamos idempotencia en \texttt{POST /workouts}.
+
+\textbf{Decisión.} Aceptar \texttt{client\_request\_id} como campo del cuerpo, y persistirlo como columna del workout (UUID nullable) con índice único parcial sobre \texttt{(user\_id, client\_request\_id)}.
+
+\textbf{Alternativa.} Cabecera estándar \texttt{Idempotency-Key} + tabla auxiliar de keys.
+
+\textbf{Razones.}
+\begin{itemize}[leftmargin=*]
+  \item La idempotencia es propia del recurso \texttt{workout}; modelarla como columna lo deja explícito en el esquema, sin tabla aparte.
+  \item La columna permite consultas (``muéstrame todos los workouts que sincronizaron con la clave X'').
+  \item La cabecera estándar habría requerido una tabla de ledger de keys con TTL, más complejidad operativa.
+\end{itemize}
+
+\textbf{Consecuencias.} El campo viaja en el JSON, no en headers; herramientas que esperan el estándar HTTP no lo verán automáticamente.
+
+\subsection{ADR-004 — Spring Boot 4 en lugar de SB 3.x}
+
+\textbf{Contexto.} El proyecto comenzó con SB 4.0.3.
+
+\textbf{Decisión.} Mantenerse en SB4.
+
+\textbf{Trampa.} Spring Boot 4 separó la autoconfiguración de Flyway en un módulo aparte (\texttt{spring-boot-flyway}). Sin esa dependencia, las migraciones se saltan silenciosamente. Esto causó el primer crash de despliegue (Hibernate corrió antes que Flyway). Documentado en \texttt{SERVER\_DEPLOY.md}.
+
+\subsection{ADR-005 — Compute engine separado en Python}
+
+\textbf{Contexto.} Los modelos de fatiga y riesgo son cálculo numérico iterativo. Implementarlos en Java requería traducir lógica que el dominio del fitness suele tener en Python.
+
+\textbf{Decisión.} Servicio aparte en FastAPI, llamado por HTTP.
+
+\textbf{Consecuencias.} Despliegue tiene dos procesos. El backend debe tolerar caídas del compute (timeout + fallback). El cliente debe distinguir ``valores cero porque no entrené'' de ``valores cero porque el compute está caído'': se usa el flag \texttt{compute\_available}.
+
+% =============================================================================
+\section{Limitaciones conocidas y trabajo futuro}
 % =============================================================================
 
 \begin{itemize}[leftmargin=*]
-  \item \texttt{RevokedTokenStore} es en memoria; un reinicio pierde la blacklist. Producción real exigiría Redis o equivalente.
-  \item No hay flujo de password reset por email.
-  \item El cliente no sincroniza pull bidireccional para actualizaciones hechas en otro dispositivo: confía en pull on-demand al abrir la pantalla.
-  \item Sin recolección remota de métricas/errores (Sentry, Crashlytics).
-  \item Los endpoints de export del backend fueron eliminados — la generación de \texttt{.xlsx} y \texttt{.csv} se hace en el dispositivo con \texttt{excel} y \texttt{share\_plus}, lo que permite exportar incluso sin conexión.
+  \item \textbf{Revocación de tokens en memoria.} \cls{RevokedTokenStore} es un mapa local; un reinicio del proceso pierde la blacklist y, en una hipotética instalación multi-instancia, no se sincroniza. Migración futura a Redis.
+  \item \textbf{Sin recuperación de contraseña.} El flujo de reset por email no está implementado.
+  \item \textbf{Pull bidireccional manual.} El cliente no escucha cambios proactivos del servidor; sincroniza on-demand al abrir pantallas relevantes. WebSocket o long-poll quedan fuera de alcance.
+  \item \textbf{Sin telemetría remota.} No hay Sentry ni Crashlytics. Los logs viven en el host.
+  \item \textbf{Sin rate limiting distribuido.} \cls{LoginRateLimitFilter} cuenta intentos en memoria, por proceso.
+  \item \textbf{Despliegue mono-host.} No hay alta disponibilidad. Postgres es local; copias de seguridad son responsabilidad del operador.
+  \item \textbf{Exportes locales únicamente.} \texttt{.xlsx} y \texttt{.csv} se generan en el dispositivo con \texttt{excel} y \texttt{share\_plus}. No hay endpoint de descarga en el servidor (el antiguo \cls{ExportController} fue retirado).
+\end{itemize}
+
+% =============================================================================
+\section{Referencias}
+% =============================================================================
+
+\begin{itemize}[leftmargin=*]
+  \item Banister, E. (1991). \textit{Modeling elite athletic performance}. Bases del modelo ATL/CTL/TSB.
+  \item Gabbett, T. (2016). \textit{The training–injury prevention paradox}. ACWR como predictor de lesión.
+  \item Spring Boot 4 release notes — \url{https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Release-Notes}.
+  \item Drift documentation — \url{https://drift.simonbinder.eu/}.
+  \item Cloudflare Tunnel docs — \url{https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/}.
+  \item Repositorios del proyecto — \url{https://github.com/YeisenK/StrengthLabs} y \url{https://github.com/YeisenK/StrengthLabsBackend}.
 \end{itemize}
 
 \end{document}
