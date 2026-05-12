@@ -208,10 +208,21 @@ class WorkoutControllerIT extends AbstractIntegrationTest {
                 Map.of("name", "Updated"), token, "If-Match", "0");
         assertThat(v1.status()).isEqualTo(200);
 
+        // The response must already reflect the bumped version — clients use
+        // this value for the next If-Match. If we serialise before the flush
+        // they get stuck on version=0 and every subsequent PUT 409s.
+        assertThat(((Number) v1.body().get("version")).intValue()).isEqualTo(1);
+
         // Second update with the now-stale version 0 must be rejected.
         HttpResponse v2 = doPutWithHeader("/workouts/" + workoutId,
                 Map.of("name", "Should fail"), token, "If-Match", "0");
         assertThat(v2.status()).isEqualTo(409);
+
+        // A subsequent PUT with the fresh version succeeds and bumps to 2.
+        HttpResponse v3 = doPutWithHeader("/workouts/" + workoutId,
+                Map.of("name", "Bumped again"), token, "If-Match", "1");
+        assertThat(v3.status()).isEqualTo(200);
+        assertThat(((Number) v3.body().get("version")).intValue()).isEqualTo(2);
     }
 
     @Test

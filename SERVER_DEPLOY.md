@@ -20,20 +20,35 @@ If `git pull` complains about a divergent local state, **stop and ask** — do n
 
 ## 2. What's already running (do not touch unless broken)
 
-Run these and read the output before changing anything:
+Run these and read the output before changing anything. **Two things vary
+between dev boxes and the real server** — confirm before assuming the
+defaults match what you actually have:
+
+- **Listen port.** This runbook talks about `:8000` because that's the
+  default in `application.yml`. The server may override it via `PORT=…`
+  in its `.env` (e.g. `PORT=8080`). Look at the actual unit / `.env`
+  first; the tests in §5 derive `BASE` from whatever port it picks.
+- **JDK location.** The Fedora package is at
+  `/usr/lib/jvm/java-21-openjdk`; Debian/Ubuntu installs it at
+  `/usr/lib/jvm/java-21-openjdk-amd64`. If `java -version` already prints
+  21, you don't need `JAVA_HOME` exported at all — leave it off the unit
+  rather than hardcoding the wrong path.
 
 ```bash
-# Docker compose for Postgres + Redis (the project ships this)
-docker compose -f docker/docker-compose.yml ps
+# Postgres + Redis. May be running natively (systemd) rather than via
+# the project's compose file — check both before deciding anything.
+docker compose -f docker/docker-compose.yml ps 2>/dev/null \
+  || systemctl is-active postgresql redis 2>/dev/null
 
 # Java toolchain (must be 21)
-JAVA_HOME=/usr/lib/jvm/java-21-openjdk java -version
+java -version 2>&1 | head -1
 
-# Python compute engine — runs separately on :8001
-ss -tlnp | grep ':8001 ' || echo "compute engine not running yet"
+# Discover the actual listen ports. Don't assume.
+ss -tlnp | grep -E ':(8000|8080|8001) '
 
-# Spring backend — runs on :8000
-ss -tlnp | grep ':8000 ' || echo "backend not running yet"
+# .env values that influence behaviour
+grep -E '^(PORT|JWT_|GOOGLE_|COMPUTE_ENGINE_URL|CORS_)' .env 2>/dev/null \
+  | sed 's/=.*$/=<set>/'
 ```
 
 Note what you find. If Postgres is already up and migrated against an older schema, the new V5/V6 migrations will apply on next backend start — they are additive (no destructive operations).
@@ -195,7 +210,9 @@ All `OK:` lines should print. If any `FAIL:` appears, capture the response body 
 | 409 on every PUT after deploy | Clients sending `If-Match: 0` after server already bumped versions | Have clients GET first, use the returned `version`. Older clients without `If-Match` still work. |
 | Fatigue returns all zeros | Python compute service is down | `ss -tlnp \| grep 8001`, restart `recursos`. Backend behaves correctly (degraded) — no need to roll back. |
 | `duration_seconds` is 0 in returned workouts | Old frontend payload using `durationSeconds` | Upgrade the mobile clients. The server already accepts only `duration_seconds`. |
+| `PUT /workouts/{id}` response body shows the pre-update `version` (e.g. `0` after the first successful PUT) | The controller serialised before Hibernate flushed `@Version`. Clients reading `version` back for the next `If-Match` will 409 forever. | Fixed in commit that switched `workoutRepo.save(workout)` → `saveAndFlush`. If you ever see this again, check whether someone reverted it. |
 | Migration V5 fails: `relation "workouts" does not exist` | DB is empty and Flyway is skipping V1–V4 for some reason | `SELECT * FROM flyway_schema_history;` to see state; if empty, drop the schema and let Flyway repopulate from V1. |
+| `Found non-empty schema(s) "public" but no schema history table` on first start | Hibernate `ddl-auto=update` previously built the schema bypassing Flyway. The tables exist with real data, but `flyway_schema_history` does not. | Adopt the existing schema as the V4 baseline: set `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true` and `SPRING_FLYWAY_BASELINE_VERSION=4` in `.env`. If the relaxed env-var binding doesn't kick in (depends on Spring Boot relaxation rules per release), pass them as `-Dspring.flyway.baseline-on-migrate=true -Dspring.flyway.baseline-version=4` in `ExecStart`. Then remove `SPRING_JPA_HIBERNATE_DDL_AUTO=update` from the systemd unit — `validate` from `application-prod.yml` is the canary §7 says not to disable. After this fix, V5/V6 run on top of the adopted baseline and preserve existing data. |
 
 ---
 

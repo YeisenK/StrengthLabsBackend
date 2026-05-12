@@ -171,7 +171,11 @@ public class WorkoutController {
         if (input.name() != null) workout.setName(input.name());
         if (input.notes() != null) workout.setNotes(input.notes());
 
-        return ResponseEntity.ok(toMap(workoutRepo.save(workout), locale));
+        // saveAndFlush — `save` doesn't force a flush, so @Version is still
+        // the pre-update value in memory when we serialise. Without the flush
+        // the response body returns the old version and clients that read
+        // it back for their next If-Match get stuck on a stale number.
+        return ResponseEntity.ok(toMap(workoutRepo.saveAndFlush(workout), locale));
     }
 
     // ── DELETE /workouts/{id} ──────────────────────────────────────────────────
